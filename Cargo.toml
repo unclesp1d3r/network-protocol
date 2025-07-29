@@ -1,0 +1,32 @@
+[package]
+name = "network-protocol"
+version = "0.1.0"
+edition = "2021"
+authors = ["James Gober <code@jamesgober.dev>"]
+description = "Modular, high-performance Rust protocol layer for local, remote, and cluster communication."
+readme = "README.md"
+publish = true
+license = "Apache-2.0"
+documentation = "https://docs.rs/network-protocol"
+repository = "https://github.com/jamesgober/network-protocol"
+
+keywords = ["network", "protocol", "transport", "security", "rust"]
+categories = ["network-programming"]
+
+
+[dependencies]
+tokio = { version = "1.38", features = ["net", "io-util", "macros", "rt-multi-thread"] }
+tokio-util = "0.7"
+bytes = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+thiserror = "1.0"
+tracing = "0.1"
+
+# Optional future additions
+# noise-protocol = "0.x"
+# aes-gcm = "0.x"
+# xchacha20poly1305 = "0.x"
+# lz4_flex = "1.x"
+# zstd = "0.x"
+# snafu / eyre if you want alt error handling
