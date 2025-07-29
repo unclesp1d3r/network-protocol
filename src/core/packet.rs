@@ -8,9 +8,9 @@
 //! The `Packet` struct represents a fully decoded protocol packet,
 //! including the protocol version, magic header, and binary payload.
 //!
-//! This module uses the [`bincode`] crate for efficient binary encoding.
+//! This module uses the `bincode` crate for efficient binary encoding.
 //! Protocol constants like `MAGIC_BYTES` and `PROTOCOL_VERSION` are defined
-//! in the [`config`] module.
+//! in the `config` module.
 //!
 //! ## Responsibilities
 //! - Decode packets from raw byte buffers

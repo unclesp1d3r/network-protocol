@@ -9,8 +9,6 @@
         <span>&nbsp;</span>
         <a href="https://docs.rs/network-protocol" title="Network-Protocol Documentation"><img alt="docs.rs" src="https://img.shields.io/docsrs/network-protocol"></a>
         <span>&nbsp;</span>
-        <img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/jamesgober/network-protocol?color=%23347d39" alt="last commit badge">
-        <span>&nbsp;</span>
         <a href="https://github.com/jamesgober/network-protocol/actions"><img alt="GitHub CI" src="https://github.com/jamesgober/network-protocol/actions/workflows/ci.yml/badge.svg"></a>
     </div>
 </div>
@@ -26,7 +24,6 @@
 - Plugin-friendly dispatcher for message routing
 - Modular: remote TCP, local Unix socket, cluster sync (planned)
 - Ready for microservices, databases, daemons, and system protocols
-
 <br>
 
 ## Installation
@@ -110,5 +107,6 @@ src/
 ```
 
 
-
+[Docs Root](./docs/README.md) | 
+[API Reference](./docs/API.md)
 
