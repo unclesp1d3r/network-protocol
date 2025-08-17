@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mutual TLS authentication (mTLS) support for bidirectional certificate verification
 - Configuration options for TLS protocol versions (TLS 1.2, TLS 1.3)
 - Customizable cipher suite selection for TLS connections
+- Graceful shutdown support for all server implementations:
+  - Signal handling (CTRL+C) for clean termination
+  - Active connection tracking and draining
+  - Configurable shutdown timeouts
+  - Resource cleanup during shutdown (sockets, files, etc.)
+  - Heartbeat task termination for cluster transport
 
 ### Changed
 - Improved error handling in client/server binaries
@@ -35,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modified client handshake code to properly handle Result types
 - Implemented graceful shutdown mechanism for the daemon server with proper signal handling
 - Added comprehensive error propagation throughout the service layer
+- Standardized graceful shutdown mechanism across all transport implementations
+- Implemented proper shutdown test suite for verifying graceful termination
 
 ### Fixed
 - Fixed intermittent test failures in secure handshake tests

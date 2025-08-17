@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
+use tokio::sync::mpsc;
 
 use network_protocol::error::Result;
 use network_protocol::protocol::message::Message;
@@ -32,10 +33,18 @@ async fn test_tls_communication() -> Result<()> {
     // Generate test certificates
     let (cert_path, key_path) = generate_test_certificates()?;
     
-    // Start TLS server in a separate task
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
+    
+    // Start TLS server with shutdown capability
+    let server_addr = format!("127.0.0.1:{}", TEST_PORT);
     let server_handle = tokio::spawn(async move {
         let config = TlsServerConfig::new(cert_path, key_path);
-        network_protocol::service::tls_daemon::start(&format!("127.0.0.1:{}", TEST_PORT), config).await
+        let _ = network_protocol::service::tls_daemon::start_with_shutdown(
+            &server_addr, 
+            config,
+            shutdown_rx
+        ).await;
     });
     
     // Wait for server to start
@@ -69,8 +78,11 @@ async fn test_tls_communication() -> Result<()> {
     // Allow the server to process the disconnection
     sleep(Duration::from_millis(100)).await;
     
-    // Clean up the server task
-    server_handle.abort();
+    // Signal the server to shut down gracefully
+    let _ = shutdown_tx.send(()).await;
+    
+    // Wait for server to fully shut down
+    let _ = tokio::time::timeout(Duration::from_secs(2), server_handle).await;
     
     Ok(())
 }
@@ -84,12 +96,19 @@ async fn test_tls_tampering_protection() -> Result<()> {
     
     let (cert_path, key_path) = generate_test_certificates()?;
     
-    // Start TLS server
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
+    
+    // Start TLS server with shutdown capability
     let server_addr = format!("127.0.0.1:{}", TEST_PORT_TAMPER);
     let server_addr_clone = server_addr.clone();
     let server_handle = tokio::spawn(async move {
         let config = TlsServerConfig::new(cert_path, key_path);
-        network_protocol::service::tls_daemon::start(&server_addr_clone, config).await
+        let _ = network_protocol::service::tls_daemon::start_with_shutdown(
+            &server_addr_clone, 
+            config,
+            shutdown_rx
+        ).await;
     });
     
     // Wait for server to start
@@ -109,7 +128,12 @@ async fn test_tls_tampering_protection() -> Result<()> {
     // Clean up
     drop(client);
     sleep(Duration::from_millis(100)).await;
-    server_handle.abort();
+    
+    // Signal the server to shut down gracefully
+    let _ = shutdown_tx.send(()).await;
+    
+    // Wait for server to fully shut down
+    let _ = tokio::time::timeout(Duration::from_secs(2), server_handle).await;
     
     Ok(())
 }
