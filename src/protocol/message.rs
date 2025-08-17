@@ -47,6 +47,12 @@ pub enum Message {
     // Placeholder for custom commands:
     Echo(String),
     Disconnect,
+    
+    // Custom command with payload for testing and extensibility
+    Custom {
+        command: String,
+        payload: Vec<u8>,
+    },
 
     #[serde(other)]
     Unknown,

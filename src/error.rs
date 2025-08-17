@@ -85,4 +85,7 @@ pub enum ProtocolError {
 
     #[error("Custom error: {0}")]
     Custom(String),
+
+    #[error("TLS error: {0}")]
+    TlsError(String),
 }

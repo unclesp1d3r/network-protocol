@@ -22,3 +22,4 @@
 pub mod remote;
 pub mod local;
 pub mod cluster;
+pub mod tls;

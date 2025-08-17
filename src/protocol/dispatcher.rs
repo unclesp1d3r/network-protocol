@@ -55,6 +55,7 @@ fn get_opcode(msg: &Message) -> String {
         Message::SecureHandshakeInit { .. } => "SEC_HS_INIT",
         Message::SecureHandshakeResponse { .. } => "SEC_HS_RESP",
         Message::SecureHandshakeConfirm { .. } => "SEC_HS_CONFIRM",
+        Message::Custom { command, .. } => command,
         Message::Disconnect => "DISCONNECT",
         Message::Unknown => "UNKNOWN",
     }
