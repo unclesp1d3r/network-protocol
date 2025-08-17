@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated format strings to use modern Rust syntax
 - Fixed Clippy warnings throughout the codebase
 - Added Default implementation for Dispatcher
+- Replaced manual slice copying with more efficient `copy_from_slice` operations
+- Added proper deprecated attribute handling for legacy message variants
+- Fixed key derivation to ensure consistent shared secrets in secure handshake
+
+### Fixed
+- Fixed intermittent test failures in secure handshake tests
+- Added deterministic test keys for stable test behavior
+- Implemented explicit nonce setting for reproducible tests
 
 ### Security
 - Implemented Elliptic Curve Diffie-Hellman (ECDH) key exchange using x25519-dalek
