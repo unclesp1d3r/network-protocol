@@ -658,10 +658,8 @@ pub fn server_handshake_response(client_nonce: u64) -> Message {
     // Convert client nonce bytes to a proper public key format for compatibility
     // This is just for backward compatibility - in real secure handshake this would be a real public key
     let mut dummy_client_pub = [0u8; 32];
-    for i in 0..16 {
-        dummy_client_pub[i] = client_nonce_bytes[i];
-        dummy_client_pub[i+16] = client_nonce_bytes[i]; // Duplicate to fill 32 bytes
-    }
+    dummy_client_pub[..16].copy_from_slice(&client_nonce_bytes);
+    dummy_client_pub[16..32].copy_from_slice(&client_nonce_bytes); // Duplicate to fill 32 bytes
     server_keys.client_public = Some(dummy_client_pub);
     
     Message::SecureHandshakeResponse { 
