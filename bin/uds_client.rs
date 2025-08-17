@@ -1,22 +1,34 @@
 use network_protocol::transport::local;
 use network_protocol::core::packet::Packet;
-use tokio_util::codec::Framed;
-use tokio::net::UnixStream;
 use futures::{SinkExt, StreamExt};
-use std::path::Path;
 
 #[tokio::main]
 async fn main() {
-    let mut framed: Framed<UnixStream, _> = local::connect("/tmp/my.sock").await.unwrap();
+    // Path is interpreted as a unix socket path on Unix systems
+    // and as a TCP port on localhost for Windows systems
+    let socket_path = "/tmp/my.sock";
+    
+    let mut framed = match local::connect(socket_path).await {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to connect: {e}");
+            return;
+        }
+    };
 
     let msg = Packet {
         version: 1,
-        payload: b"test-uds-message".to_vec(),
+        payload: b"test-message".to_vec(),
     };
 
-    framed.send(msg).await.unwrap();
+    if let Err(e) = framed.send(msg).await {
+        eprintln!("Failed to send message: {e}");
+        return;
+    }
 
     if let Some(Ok(response)) = framed.next().await {
-        println!("UDS Echo: {:?}", String::from_utf8_lossy(&response.payload));
+        println!("Echo response: {}", String::from_utf8_lossy(&response.payload));
+    } else {
+        eprintln!("No valid response received");
     }
 }
