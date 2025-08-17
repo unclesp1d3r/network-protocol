@@ -13,7 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Removed
+- Removed deprecated legacy handshake functions (`derive_shared_key`, `verify_server_ack`, `server_handshake_response`)
+- Removed deprecated message types (`HandshakeInit`, `HandshakeAck`)
+- Removed references to deprecated code from dispatcher, client, and daemon
+- Updated API documentation to reflect removal of legacy handshake functionality
+
 ### Security
+- Enhanced security by removing insecure legacy handshake implementation
 
 
 ## [0.9.3] - 2025-08-17

@@ -1,21 +1,10 @@
-#![allow(deprecated)]
-
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[repr(u8)]
-#[allow(deprecated)]
 pub enum Message {
     Ping,
     Pong,
-
-    /// Legacy handshake types (deprecated)
-    #[allow(deprecated)]
-    #[deprecated(note = "Use SecureHandshakeInit instead")]
-    HandshakeInit { client_nonce: u64 },
-    #[allow(deprecated)]
-    #[deprecated(note = "Use SecureHandshakeResponse instead")]
-    HandshakeAck { server_nonce: u64 },
 
     /// Secure handshake using ECDH key exchange
     /// Client initiates with its public key and a timestamp to prevent replay attacks

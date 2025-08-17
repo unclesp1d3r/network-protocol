@@ -560,20 +560,19 @@ The `Message` enum defines the types of messages that can be exchanged.
 pub enum Message {
     Ping,
     Pong,
-    HandshakeInit { client_nonce: u64 },
-    HandshakeAck { server_nonce: u64 },
+    SecureHandshakeInit { pub_key: [u8; 32], timestamp: u64, nonce: Vec<u8> },
+    SecureHandshakeResponse { pub_key: [u8; 32], timestamp: u64, nonce: Vec<u8> },
+    SecureHandshakeConfirm { nonce_verification: Vec<u8> },
     Echo(String),
     Disconnect,
     Unknown,
+    Custom { command: String, data: Vec<u8> },
 }
 ```
 
 ### Handshake
 
-The handshake module provides functions for performing secure handshakes between client and server. It offers two handshake methods:
-
-1. **Legacy Handshake**: A simple nonce-based handshake (deprecated, maintained for backward compatibility)
-2. **Secure ECDH Handshake**: An Elliptic Curve Diffie-Hellman key exchange providing strong security guarantees
+The handshake module provides functions for performing secure handshakes between client and server using Elliptic Curve Diffie-Hellman (ECDH) key exchange, offering strong security guarantees including forward secrecy and protection against various attacks.
 
 #### Secure ECDH Handshake
 
@@ -763,63 +762,9 @@ let server_key = handshake::server_derive_session_key(
 handshake::clear_handshake_data();
 ```
 
-#### Legacy Handshake (Deprecated)
+#### Legacy Handshake Support
 
-> **Note**: The following functions are deprecated and maintained only for backward compatibility.
-
-##### `client_handshake_init`
-
-Initiates a handshake from the client side.
-
-```rust
-pub fn client_handshake_init() -> Message
-```
-
-**Returns:**
-- `Message`: A `HandshakeInit` message containing a randomly generated nonce
-
-##### `server_handshake_response`
-
-Handles a server-side handshake response.
-
-```rust
-pub fn server_handshake_response(client_nonce: u64) -> Message
-```
-
-**Parameters:**
-- `client_nonce`: The nonce received from the client
-
-**Returns:**
-- `Message`: A `HandshakeAck` message containing the server's response nonce
-
-##### `verify_server_ack`
-
-Verifies the server's handshake response.
-
-```rust
-pub fn verify_server_ack(server_nonce: u64, client_nonce: u64) -> bool
-```
-
-**Parameters:**
-- `server_nonce`: The nonce received from the server
-- `client_nonce`: The original client nonce
-
-**Returns:**
-- `bool`: `true` if the server's response is valid, `false` otherwise
-
-##### `derive_shared_key`
-
-Generates a 32-byte symmetric key from the client nonce.
-
-```rust
-pub fn derive_shared_key(client_nonce: u64) -> [u8; 32]
-```
-
-**Parameters:**
-- `client_nonce`: The client nonce
-
-**Returns:**
-- `[u8; 32]`: A 32-byte symmetric key
+> **Note**: Legacy handshake support has been removed from the codebase in favor of the more secure ECDH handshake implementation.
 
 ### Dispatcher
 

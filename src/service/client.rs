@@ -7,8 +7,6 @@ use crate::core::packet::Packet;
 use crate::protocol::message::Message;
 // Import secure handshake functions
 use crate::protocol::handshake::{client_secure_handshake_init, client_secure_handshake_verify, client_derive_session_key};
-// Keep deprecated imports for reference but commented out
-// use crate::protocol::handshake::{client_handshake_init, verify_server_ack, derive_shared_key};
 use crate::service::secure::SecureConnection;
 use crate::transport::remote;
 use crate::error::{Result, ProtocolError};
@@ -30,26 +28,6 @@ impl Client {
         //     // Legacy handshake process
         //     let (client_nonce, handshake) = client_handshake_init();
         //     
-        //     let handshake_bytes = bincode::serialize(&handshake)?;
-        //     framed.send(Packet {
-        //         version: 1,
-        //         payload: handshake_bytes,
-        //     }).await?;
-        //     
-        //     let packet = framed.next().await.ok_or(ProtocolError::Timeout)??;
-        //     let ack: Message = bincode::deserialize(&packet.payload)?;
-        //     match ack {
-        //         Message::HandshakeAck { server_nonce } => {
-        //             if !verify_server_ack(server_nonce, client_nonce) {
-        //                 return Err(ProtocolError::HandshakeError("Invalid handshake ack".into()));
-        //             }
-        //         }
-        //         _ => return Err(ProtocolError::UnexpectedMessage),
-        //     }
-        //     
-        //     Ok(derive_shared_key(client_nonce))
-        // }
-        
         // --- Secure Handshake Process ---
         // Step 1: Send client init with public key, nonce, and timestamp
         let init_msg = client_secure_handshake_init()?;

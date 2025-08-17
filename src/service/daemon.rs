@@ -11,8 +11,6 @@ use crate::core::packet::Packet;
 use crate::protocol::message::Message;
 // Import secure handshake functions
 use crate::protocol::handshake::{server_secure_handshake_response, server_secure_handshake_finalize, clear_handshake_data};
-// Legacy imports (commented out for reference)
-// use crate::protocol::handshake::{server_handshake_response, derive_shared_key};
 use crate::protocol::dispatcher::Dispatcher;
 use crate::service::secure::SecureConnection;
 use crate::error::{Result, ProtocolError};

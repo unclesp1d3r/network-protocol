@@ -598,17 +598,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     Ok(session_key)
 }
 
-/// Derive a shared key from the ECDH exchange using insecure legacy method
-/// This should only be used for backward compatibility
-#[deprecated(note = "Use derive_secure_key instead")]
-pub fn derive_shared_key(client_nonce: u64) -> [u8; 32] {
-    let mut key = [0u8; 32];
-    let nonce_bytes = client_nonce.to_le_bytes();
-    for i in 0..32 {
-        key[i] = nonce_bytes[i % 8] ^ (0xA5 ^ (i as u8));
-    }
-    key
-}
+// Removed deprecated derive_shared_key function
 
 /// Legacy client handshake function for compatibility
 /// Now uses the secure handshake implementation
@@ -643,55 +633,9 @@ pub fn client_handshake_init() -> Result<(u64, Message)> {
     }))
 }
 
-/// Legacy handshake verification function for compatibility
-/// @deprecated Use client_secure_handshake_verify instead
-#[deprecated(note = "Use client_secure_handshake_verify instead")]
-pub fn verify_server_ack(server_nonce: u64, client_nonce: u64) -> bool {
-    // Legacy verification simply checks if nonces are not zero
-    server_nonce != 0 && client_nonce != 0
-}
+// Removed deprecated verify_server_ack function
 
-/// Legacy server handshake response for compatibility
-/// @deprecated Use server_secure_handshake_response instead
-#[deprecated(note = "Use server_secure_handshake_response instead")]
-pub fn server_handshake_response(client_nonce: u64) -> Message {
-    let mut rng = OsRng;
-    let server_nonce = rng.next_u64();
-    
-    // Generate a server key pair for compatibility with secure handshake
-    let server_secret = EphemeralSecret::random_from_rng(OsRng);
-    let server_public = PublicKey::from(&server_secret);
-    
-    // Convert u64 nonces to proper format
-    let mut client_nonce_bytes = [0u8; 16];
-    client_nonce_bytes[0..8].copy_from_slice(&client_nonce.to_le_bytes());
-    
-    let mut server_nonce_bytes = [0u8; 16];
-    server_nonce_bytes[0..8].copy_from_slice(&server_nonce.to_le_bytes());
-    
-    // Create verification hash of client nonce
-    let nonce_verification = hash_nonce(&client_nonce_bytes);
-    
-    // Store server keys and nonces
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
-    server_keys.secret = Some(server_secret);
-    server_keys.public = Some(server_public.to_bytes());
-    server_keys.client_nonce = Some(client_nonce_bytes);
-    server_keys.server_nonce = Some(server_nonce_bytes);
-    
-    // Convert client nonce bytes to a proper public key format for compatibility
-    // This is just for backward compatibility - in real secure handshake this would be a real public key
-    let mut dummy_client_pub = [0u8; 32];
-    dummy_client_pub[..16].copy_from_slice(&client_nonce_bytes);
-    dummy_client_pub[16..32].copy_from_slice(&client_nonce_bytes); // Duplicate to fill 32 bytes
-    server_keys.client_public = Some(dummy_client_pub);
-    
-    Message::SecureHandshakeResponse { 
-        pub_key: server_public.to_bytes(),
-        nonce: server_nonce_bytes,
-        nonce_verification,
-    }
-}
+// Removed deprecated server_handshake_response function
 
 /// Clears handshake data for clean test runs
 pub fn clear_handshake_data() -> Result<()> {
