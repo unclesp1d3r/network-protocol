@@ -6,8 +6,7 @@ use futures::{StreamExt, SinkExt};
 use std::path::Path;
 
 use crate::core::codec::PacketCodec;
-use crate::core::packet::Packet;
-use crate::error::{Result, ProtocolError};
+use crate::error::Result;
 #[cfg(windows)]
 use tokio::net::{TcpListener, TcpStream};
 #[cfg(windows)]
