@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated client and server binaries to work across platforms
 - Secure handshake protocol using ECDH key exchange
 - Protection against replay attacks using timestamps and nonce verification
+- TLS support for secure external connections
+- Self-signed certificate generation capability for development
+- Dedicated TLS transport layer with client and server implementations
+- Certificate pinning functionality for enhanced security in TLS connections
+- Mutual TLS authentication (mTLS) support for bidirectional certificate verification
+- Configuration options for TLS protocol versions (TLS 1.2, TLS 1.3)
+- Customizable cipher suite selection for TLS connections
 
 ### Changed
 - Improved error handling in client/server binaries
