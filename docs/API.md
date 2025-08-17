@@ -432,9 +432,202 @@ pub enum Message {
 
 ### Handshake
 
-The handshake module provides functions for performing secure handshakes between client and server.
+The handshake module provides functions for performing secure handshakes between client and server. It offers two handshake methods:
 
-#### Functions
+1. **Legacy Handshake**: A simple nonce-based handshake (deprecated, maintained for backward compatibility)
+2. **Secure ECDH Handshake**: An Elliptic Curve Diffie-Hellman key exchange providing strong security guarantees
+
+#### Secure ECDH Handshake
+
+##### `client_secure_handshake_init`
+
+Initiates a secure handshake from the client side using ECDH key exchange.
+
+```rust
+pub fn client_secure_handshake_init() -> (Message, EphemeralSecret)
+```
+
+**Returns:**
+- `(Message, EphemeralSecret)`: A tuple containing:
+  - A `SecureHandshakeInit` message with the client's public key, nonce, and timestamp
+  - The client's ephemeral secret key for later use
+
+##### `server_secure_handshake_response`
+
+Generates a server response to a secure handshake initiation.
+
+```rust
+pub fn server_secure_handshake_response(client_pk: PublicKey, client_nonce: Vec<u8>, client_timestamp: u64)
+    -> Result<(Message, EphemeralSecret)>
+```
+
+**Parameters:**
+- `client_pk`: The client's public key
+- `client_nonce`: The client's random nonce
+- `client_timestamp`: The client's timestamp
+
+**Returns:**
+- `Result<(Message, EphemeralSecret)>`: A result containing either:
+  - A tuple with a `SecureHandshakeResponse` message and the server's ephemeral secret
+  - An error if the handshake validation fails
+
+##### `client_secure_handshake_verify`
+
+Verifies the server's handshake response and creates a confirmation message.
+
+```rust
+pub fn client_secure_handshake_verify(
+    server_pk: PublicKey,
+    server_nonce: Vec<u8>,
+    server_timestamp: u64,
+    client_secret: Option<EphemeralSecret>,
+    client_nonce: &Vec<u8>
+) -> Result<Message>
+```
+
+**Parameters:**
+- `server_pk`: The server's public key
+- `server_nonce`: The server's random nonce
+- `server_timestamp`: The server's timestamp
+- `client_secret`: The client's ephemeral secret from initiation
+- `client_nonce`: The client's original nonce
+
+**Returns:**
+- `Result<Message>`: A result containing either a `SecureHandshakeConfirm` message or an error
+
+##### `server_secure_handshake_finalize`
+
+Finalizes the handshake process on the server side.
+
+```rust
+pub fn server_secure_handshake_finalize(
+    confirm_hash: Vec<u8>,
+    server_secret: Option<EphemeralSecret>,
+    client_pk: PublicKey,
+    server_nonce: &Vec<u8>,
+    client_nonce: &Vec<u8>
+) -> Result<()>
+```
+
+**Parameters:**
+- `confirm_hash`: The confirmation hash received from client
+- `server_secret`: The server's ephemeral secret
+- `client_pk`: The client's public key
+- `server_nonce`: The server's nonce
+- `client_nonce`: The client's nonce
+
+**Returns:**
+- `Result<()>`: Success or an error if verification fails
+
+##### `client_derive_session_key` / `server_derive_session_key`
+
+Derives a session key from the shared secret and nonces.
+
+```rust
+pub fn client_derive_session_key(shared_secret: [u8; 32], client_nonce: &Vec<u8>, server_nonce: &Vec<u8>) -> [u8; 32]
+pub fn server_derive_session_key(shared_secret: [u8; 32], client_nonce: &Vec<u8>, server_nonce: &Vec<u8>) -> [u8; 32]
+```
+
+**Parameters:**
+- `shared_secret`: The ECDH shared secret
+- `client_nonce`: The client's nonce
+- `server_nonce`: The server's nonce
+
+**Returns:**
+- `[u8; 32]`: A 32-byte session key
+
+##### `clear_handshake_data`
+
+Clears sensitive handshake data from memory.
+
+```rust
+pub fn clear_handshake_data()
+```
+
+#### Security Features
+
+- **Forward Secrecy**: Uses ephemeral keys that are discarded after session establishment
+- **Anti-Replay Protection**: Validates timestamps and nonces to prevent replay attacks
+- **Man-in-the-Middle Protection**: Full key verification through confirmation hash
+- **Session Key Derivation**: Combines shared secret with client and server nonces using SHA-256
+
+**Example:**
+```rust
+use network_protocol::protocol::handshake;
+use network_protocol::protocol::message::Message;
+use x25519_dalek::{EphemeralSecret, PublicKey};
+
+// Client initiates handshake
+let (init_msg, client_secret) = handshake::client_secure_handshake_init();
+let client_pk = match &init_msg {
+    Message::SecureHandshakeInit { public_key, nonce, timestamp } => {
+        // Store nonce for later use
+        let client_nonce = nonce.clone();
+        PublicKey::from(*public_key)
+    },
+    _ => panic!("Unexpected message type"),
+};
+
+// Server processes handshake initiation (after receiving init_msg)
+let (response_msg, server_secret) = match init_msg {
+    Message::SecureHandshakeInit { public_key, nonce, timestamp } => {
+        handshake::server_secure_handshake_response(
+            PublicKey::from(*public_key), nonce, timestamp
+        ).unwrap()
+    },
+    _ => panic!("Unexpected message type"),
+};
+
+// Client verifies server response
+let confirm_msg = match response_msg {
+    Message::SecureHandshakeResponse { public_key, nonce, timestamp } => {
+        handshake::client_secure_handshake_verify(
+            PublicKey::from(*public_key), 
+            nonce.clone(), 
+            timestamp, 
+            Some(client_secret),
+            &client_nonce
+        ).unwrap()
+    },
+    _ => panic!("Unexpected message type"),
+};
+
+// Server finalizes handshake
+let result = match confirm_msg {
+    Message::SecureHandshakeConfirm { hash } => {
+        handshake::server_secure_handshake_finalize(
+            hash, 
+            Some(server_secret), 
+            client_pk,
+            &server_nonce, 
+            &client_nonce
+        )
+    },
+    _ => panic!("Unexpected message type"),
+};
+
+// Both sides can derive the same session key
+assert!(result.is_ok());
+// Client derives key
+let client_key = handshake::client_derive_session_key(
+    shared_secret,  // obtained during verification
+    &client_nonce,
+    &server_nonce
+);
+// Server derives identical key
+let server_key = handshake::server_derive_session_key(
+    shared_secret,  // obtained during finalization
+    &client_nonce,
+    &server_nonce
+);
+
+// Clear sensitive data
+handshake::clear_handshake_data();
+```
+
+#### Legacy Handshake (Deprecated)
+
+> **Note**: The following functions are deprecated and maintained only for backward compatibility.
 
 ##### `client_handshake_init`
 
@@ -489,34 +682,6 @@ pub fn derive_shared_key(client_nonce: u64) -> [u8; 32]
 
 **Returns:**
 - `[u8; 32]`: A 32-byte symmetric key
-
-**Example:**
-```rust
-use network_protocol::protocol::handshake;
-use network_protocol::protocol::message::Message;
-
-// Client side
-let init_msg = handshake::client_handshake_init();
-let client_nonce = match init_msg {
-    Message::HandshakeInit { client_nonce } => client_nonce,
-    _ => panic!("Unexpected message type"),
-};
-
-// Server side (after receiving client_nonce)
-let response_msg = handshake::server_handshake_response(client_nonce);
-let server_nonce = match response_msg {
-    Message::HandshakeAck { server_nonce } => server_nonce,
-    _ => panic!("Unexpected message type"),
-};
-
-// Client side (after receiving server_nonce)
-let is_valid = handshake::verify_server_ack(server_nonce, client_nonce);
-assert!(is_valid, "Invalid server handshake response");
-
-// Both sides can now derive the same key
-let key = handshake::derive_shared_key(client_nonce);
-println!("Derived shared key: {:?}", key);
-```
 
 ### Dispatcher
 

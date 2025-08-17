@@ -46,10 +46,17 @@ fn get_opcode(msg: &Message) -> String {
         Message::Ping => "PING",
         Message::Pong => "PONG",
         Message::Echo(_) => "ECHO",
+        // Deprecated handshake messages (still need to handle them)
+        #[allow(deprecated)]
         Message::HandshakeInit { .. } => "HS_INIT",
+        #[allow(deprecated)]
         Message::HandshakeAck { .. } => "HS_ACK",
+        // Secure handshake messages
+        Message::SecureHandshakeInit { .. } => "SEC_HS_INIT",
+        Message::SecureHandshakeResponse { .. } => "SEC_HS_RESP",
+        Message::SecureHandshakeConfirm { .. } => "SEC_HS_CONFIRM",
         Message::Disconnect => "DISCONNECT",
-        _ => "UNKNOWN",
+        Message::Unknown => "UNKNOWN",
     }
     .to_string()
 }
