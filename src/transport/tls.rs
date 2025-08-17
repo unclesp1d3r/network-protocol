@@ -123,7 +123,7 @@ impl TlsServerConfig {
     pub fn load_server_config(&self) -> Result<ServerConfig> {
         // Load certificate
         let cert_file = File::open(&self.cert_path)
-            .map_err(|e| ProtocolError::TlsError(format!("Failed to open cert file: {}", e)))?;
+            .map_err(|e| ProtocolError::TlsError(format!("Failed to open cert file: {e}")))?;
         let mut cert_reader = BufReader::new(cert_file);
         let cert_chain = certs(&mut cert_reader)
             .map_err(|_| ProtocolError::TlsError("Failed to parse certificate".into()))?;
@@ -135,7 +135,7 @@ impl TlsServerConfig {
         
         // Load private key
         let key_file = File::open(&self.key_path)
-            .map_err(|e| ProtocolError::TlsError(format!("Failed to open key file: {}", e)))?;
+            .map_err(|e| ProtocolError::TlsError(format!("Failed to open key file: {e}")))?;
         let mut key_reader = BufReader::new(key_file);
         let keys = pkcs8_private_keys(&mut key_reader)
             .map_err(|_| ProtocolError::TlsError("Failed to parse private key".into()))?;
@@ -160,13 +160,13 @@ impl TlsServerConfig {
         // Build config with certificates
         let mut config = cert_builder
             .with_single_cert(cert_chain, private_key)
-            .map_err(|e| ProtocolError::TlsError(format!("TLS error: {}", e)))?;
+            .map_err(|e| ProtocolError::TlsError(format!("TLS error: {e}")))?;
         
         // Configure client authentication if required (mTLS)
         if let Some(client_ca_path) = &self.client_ca_path {
             // Load client CA certificates
             let client_ca_file = File::open(client_ca_path)
-                .map_err(|e| ProtocolError::TlsError(format!("Failed to open client CA file: {}", e)))?;
+                .map_err(|e| ProtocolError::TlsError(format!("Failed to open client CA file: {e}")))?;
             let mut client_ca_reader = BufReader::new(client_ca_file);
             let client_ca_certs = certs(&mut client_ca_reader)
                 .map_err(|_| ProtocolError::TlsError("Failed to parse client CA certificate".into()))?;
@@ -181,7 +181,7 @@ impl TlsServerConfig {
             for cert in &client_ca_certs {
                 client_root_store
                     .add(cert)
-                    .map_err(|e| ProtocolError::TlsError(format!("Failed to add client CA cert: {}", e)))?;
+                    .map_err(|e| ProtocolError::TlsError(format!("Failed to add client CA cert: {e}")))?;
             }
             
             // For rustls versions without set_client_certificate_verifier method, we need to handle differently
@@ -195,7 +195,7 @@ impl TlsServerConfig {
             // Build a new config with certificates and client auth
             config = new_cert_builder
                 .with_single_cert(cert_chain_copy, private_key_copy)
-                .map_err(|e| ProtocolError::TlsError(format!("TLS error with client auth: {}", e)))?;
+                .map_err(|e| ProtocolError::TlsError(format!("TLS error with client auth: {e}")))?;
         }
         
         // Config has already been built above with the cert chain and private key
@@ -306,7 +306,7 @@ impl TlsClientConfig {
         // Try to load PKCS8 keys
         // Seek to beginning of file first
         reader.seek(std::io::SeekFrom::Start(0))
-            .map_err(|e| ProtocolError::Io(e))?;
+            .map_err(ProtocolError::Io)?;
             
         // We need to use pkcs8_private_keys on the BufReader directly since it implements BufRead
         let keys = pkcs8_private_keys(reader)
@@ -328,12 +328,12 @@ impl TlsClientConfig {
             // SECURE MODE: Use system root certificates
             let mut root_store = RootCertStore::empty();
             let native_certs = rustls_native_certs::load_native_certs()
-                .map_err(|e| ProtocolError::TlsError(format!("Failed to load native certs: {}", e)))?;
+                .map_err(|e| ProtocolError::TlsError(format!("Failed to load native certs: {e}")))?;
 
             for cert in native_certs {
                 root_store
                     .add(&Certificate(cert.0))
-                    .map_err(|e| ProtocolError::TlsError(format!("Failed to add cert to root store: {}", e)))?;
+                    .map_err(|e| ProtocolError::TlsError(format!("Failed to add cert to root store: {e}")))?;
             }
             
             // Create config builder with root certificates
@@ -348,7 +348,7 @@ impl TlsClientConfig {
             ) {
                 // Load client certificate
                 let client_cert_file = File::open(client_cert_path)
-                    .map_err(|e| ProtocolError::Io(e))?;
+                    .map_err(ProtocolError::Io)?;
                 let mut client_cert_reader = BufReader::new(client_cert_file);
                 let client_certs = rustls_pemfile::certs(&mut client_cert_reader)
                     .map_err(|_| ProtocolError::TlsError("Failed to parse client certificate".into()))?;
@@ -359,7 +359,7 @@ impl TlsClientConfig {
                     
                 // Load client private key
                 let client_key_file = File::open(client_key_path)
-                    .map_err(|e| ProtocolError::Io(e))?;
+                    .map_err(ProtocolError::Io)?;
                 let mut client_key_reader = BufReader::new(client_key_file);
                 
                 // Try various key formats
@@ -367,13 +367,13 @@ impl TlsClientConfig {
                     
                 // Convert certs from rustls_pemfile format to rustls Certificate format
                 let client_cert_chain = client_certs.into_iter()
-                    .map(|cert| Certificate(cert))
+                    .map(Certificate)
                     .collect::<Vec<_>>();
                     
                 // Create config with client certificates
                 let config = builder
                     .with_client_auth_cert(client_cert_chain, client_key)
-                    .map_err(|e| ProtocolError::TlsError(format!("Failed to set client certificate: {}", e)))?;
+                    .map_err(|e| ProtocolError::TlsError(format!("Failed to set client certificate: {e}")))?;
                 
                 Ok(config)
             } else {
@@ -450,7 +450,7 @@ impl TlsClientConfig {
             ) {
                 // Load client certificate
                 let client_cert_file = File::open(client_cert_path)
-                    .map_err(|e| ProtocolError::Io(e))?;
+                    .map_err(ProtocolError::Io)?;
                 let mut client_cert_reader = BufReader::new(client_cert_file);
                 let client_certs = rustls_pemfile::certs(&mut client_cert_reader)
                     .map_err(|_| ProtocolError::TlsError("Failed to parse client certificate".into()))?;
@@ -461,7 +461,7 @@ impl TlsClientConfig {
                     
                 // Load client private key
                 let client_key_file = File::open(client_key_path)
-                    .map_err(|e| ProtocolError::Io(e))?;
+                    .map_err(ProtocolError::Io)?;
                 let mut client_key_reader = BufReader::new(client_key_file);
                 
                 // Try various key formats
@@ -469,13 +469,13 @@ impl TlsClientConfig {
                     
                 // Convert certs to rustls Certificate format
                 let client_cert_chain = client_certs.into_iter()
-                    .map(|cert| Certificate(cert))
+                    .map(Certificate)
                     .collect::<Vec<_>>();
                     
                 // Apply client auth to the custom verifier config
                 custom_builder
                     .with_client_auth_cert(client_cert_chain, client_key)
-                    .map_err(|e| ProtocolError::TlsError(format!("Failed to set client certificate: {}", e)))
+                    .map_err(|e| ProtocolError::TlsError(format!("Failed to set client certificate: {e}")))
             } else {
                 // No client auth in insecure mode
                 Ok(custom_builder.with_no_client_auth())
@@ -564,7 +564,7 @@ pub async fn connect(addr: &str, config: TlsClientConfig) -> Result<Framed<Clien
     let domain = config.server_name()?;
     
     let tls_stream = connector.connect(domain, stream).await
-        .map_err(|e| ProtocolError::TlsError(format!("TLS connection failed: {}", e)))?;
+        .map_err(|e| ProtocolError::TlsError(format!("TLS connection failed: {e}")))?;
         
     let framed = Framed::new(tls_stream, PacketCodec);
     Ok(framed)

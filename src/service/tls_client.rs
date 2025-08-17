@@ -45,7 +45,7 @@ impl TlsClient {
     pub async fn receive(&mut self) -> Result<Message> {
         let packet = match self.framed.next().await {
             Some(Ok(pkt)) => pkt,
-            Some(Err(e)) => return Err(e.into()),
+            Some(Err(e)) => return Err(e),
             None => return Err(crate::error::ProtocolError::Custom("Connection closed".to_string())),
         };
         
