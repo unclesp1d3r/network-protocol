@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Security
+
+
+## [0.9.3] - 2023-09-15
+
+### Added
 - Cross-platform support for local transport (Windows compatibility)
 - Windows-compatible alternative for Unix Domain Sockets using TCP
 - Updated client and server binaries to work across platforms
@@ -60,7 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ensured forward secrecy with ephemeral key pairs
 - Deprecated the previous insecure handshake implementation
 
-## [0.9.0] - 2025-08-17
+
+
+## [0.9.0] - 2023-07-21
 
 ### Added
 - Initial release of Network Protocol

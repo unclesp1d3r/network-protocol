@@ -26,6 +26,7 @@
 - [Transport](#transport)
   - [Remote Transport](#remote-transport)
   - [Local Transport](#local-transport)
+  - [TLS Transport](#tls-transport)
   - [Cluster Transport](#cluster-transport)
 - [Protocol](#protocol)
   - [Message](#message)
@@ -48,7 +49,7 @@
 ### Install Manually
 ```toml
 [dependencies]
-network-protocol = "0.8.0"
+network-protocol = "0.9.3"
 ```
 
 ### Install Using Cargo
@@ -318,6 +319,143 @@ use network_protocol::transport::local;
 async fn main() -> network_protocol::error::Result<()> {
     let framed = local::connect("/tmp/my_socket").await?;
     println!("Connected to local socket!");
+    Ok(())
+}
+```
+
+### TLS Transport
+
+The TLS transport module provides functions for secure TLS-based network communication with certificate validation and mutual TLS support.
+
+#### Structs
+
+##### `TlsConfig`
+
+```rust
+pub struct TlsConfig {
+    pub cert_path: &'static str,
+    pub key_path: &'static str,
+    pub ca_path: Option<&'static str>,
+    pub verify_client: bool,
+}
+```
+
+##### `TlsClientConfig`
+
+```rust
+pub struct TlsClientConfig {
+    pub cert_path: Option<&'static str>,
+    pub key_path: Option<&'static str>,
+    pub ca_path: Option<&'static str>,
+    pub server_name: &'static str,
+}
+```
+
+#### Functions
+
+##### `start_server`
+
+Starts a TLS server at the given address with the specified TLS configuration.
+
+```rust
+pub async fn start_server(addr: &str, config: TlsConfig) -> Result<()>
+```
+
+**Parameters:**
+- `addr`: The address to bind the server to (e.g., "127.0.0.1:8443")
+- `config`: The TLS configuration for the server
+
+**Returns:**
+- `Result<()>`: A result indicating success or an error
+
+**Example:**
+```rust
+use network_protocol::transport::tls;
+use network_protocol::transport::tls::TlsConfig;
+
+#[tokio::main]
+async fn main() -> network_protocol::error::Result<()> {
+    let config = TlsConfig {
+        cert_path: "server.crt",
+        key_path: "server.key",
+        ca_path: Some("ca.crt"),   // For client cert validation (mTLS)
+        verify_client: true,        // Enable mTLS
+    };
+    
+    tls::start_server("127.0.0.1:8443", config).await
+}
+```
+
+##### `connect`
+
+Connects to a TLS server and returns a framed transport.
+
+```rust
+pub async fn connect(addr: &str, config: TlsClientConfig) -> Result<Framed<TlsStream<TcpStream>, PacketCodec>>
+```
+
+**Parameters:**
+- `addr`: The address to connect to (e.g., "127.0.0.1:8443")
+- `config`: The TLS client configuration
+
+**Returns:**
+- `Result<Framed<TlsStream<TcpStream>, PacketCodec>>`: A result containing either the framed connection or an error
+
+**Example:**
+```rust
+use network_protocol::transport::tls;
+use network_protocol::transport::tls::TlsClientConfig;
+
+#[tokio::main]
+async fn main() -> network_protocol::error::Result<()> {
+    let config = TlsClientConfig {
+        cert_path: Some("client.crt"),  // For mTLS
+        key_path: Some("client.key"),   // For mTLS
+        ca_path: Some("ca.crt"),        // For server cert validation
+        server_name: "example.com",     // Server Name Indication
+    };
+    
+    let framed = tls::connect("127.0.0.1:8443", config).await?;
+    println!("Connected to TLS server!");
+    Ok(())
+}
+```
+
+##### `generate_self_signed_cert`
+
+Generates a self-signed certificate and private key for development purposes.
+
+```rust
+pub fn generate_self_signed_cert(
+    common_name: &str,
+    cert_path: &Path,
+    key_path: &Path
+) -> Result<()>
+```
+
+**Parameters:**
+- `common_name`: The common name for the certificate (e.g., "localhost")
+- `cert_path`: The path to save the certificate to
+- `key_path`: The path to save the private key to
+
+**Returns:**
+- `Result<()>`: A result indicating success or an error
+
+**Example:**
+```rust
+use network_protocol::transport::tls;
+use std::path::Path;
+
+#[tokio::main]
+async fn main() -> network_protocol::error::Result<()> {
+    // Generate a self-signed certificate for development
+    tls::generate_self_signed_cert(
+        "localhost",
+        Path::new("dev_cert.pem"),
+        Path::new("dev_key.pem")
+    )?;
+    
+    println!("Generated self-signed certificate");
     Ok(())
 }
 ```
@@ -925,20 +1063,87 @@ The daemon module provides functionality for running a server that accepts clien
 
 #### Functions
 
-##### `run_tcp_server`
+##### `new` and `run`
 
-Runs a TCP server with the provided dispatcher.
+Creates and runs a new server daemon with graceful shutdown support.
 
 ```rust
-pub async fn run_tcp_server(addr: &str, dispatcher: Arc<Dispatcher>) -> Result<()>
+pub fn new(addr: &str, dispatcher: Arc<dyn MessageDispatcher>) -> ServerHandle
+pub async fn run(&self) -> Result<()>
 ```
 
 **Parameters:**
 - `addr`: The address to bind the server to (e.g., "127.0.0.1:8080")
-- `dispatcher`: An Arc-wrapped dispatcher for handling incoming messages
+- `dispatcher`: The message dispatcher to use for handling messages
 
 **Returns:**
-- `Result<()>`: A result indicating success or an error
+- `ServerHandle`: A handle to control the server, including shutdown
+- `Result<()>`: A result indicating success or an error when calling `run()`
+
+#### Structs
+
+##### `ServerHandle`
+
+```rust
+pub struct ServerHandle {
+    // internal fields omitted
+}
+```
+
+#### Methods
+
+##### `ServerHandle::clone`
+
+Clones the server handle for use in another thread.
+
+```rust
+pub fn clone(&self) -> Self
+```
+
+**Returns:**
+- `ServerHandle`: A new handle to the same server
+
+##### `ServerHandle::shutdown`
+
+Initiates a graceful shutdown of the server.
+
+```rust
+pub async fn shutdown(&self, timeout: Option<Duration>)
+```
+
+**Parameters:**
+- `timeout`: Optional maximum duration to wait for connections to close before forcing shutdown
+
+**Example:**
+```rust
+use network_protocol::service::daemon;
+use network_protocol::protocol::dispatcher::EchoDispatcher;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::signal;
+
+#[tokio::main]
+async fn main() -> network_protocol::error::Result<()> {
+    let dispatcher = Arc::new(EchoDispatcher::new());
+    
+    // Create server with handle for shutdown
+    let server = daemon::new("127.0.0.1:8080", dispatcher);
+    
+    // Set up graceful shutdown on Ctrl+C
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
+        println!("Shutting down gracefully...");
+        // Wait up to 10 seconds for connections to close
+        server_clone.shutdown(Some(Duration::from_secs(10))).await;
+    });
+    
+    // Run server until shutdown is called
+    server.run().await?;
+    println!("Server has shut down successfully");
+    Ok(())
+}
+```
 
 ##### `run_uds_server`
 
@@ -980,6 +1185,82 @@ async fn main() -> network_protocol::error::Result<()> {
     // Run the server
     println!("Starting server on 127.0.0.1:8080");
     daemon::run_tcp_server("127.0.0.1:8080", dispatcher).await
+}
+```
+
+### TLS Daemon
+
+The TLS daemon module provides functionality for running a TLS-secured server that accepts client connections with certificate validation.
+
+#### Functions
+
+##### `start`
+
+Starts a TLS server with the provided configuration and message dispatcher.
+
+```rust
+pub async fn start(addr: &str, tls_config: TlsConfig) -> Result<()>
+```
+
+**Parameters:**
+- `addr`: The address to bind the server to (e.g., "127.0.0.1:8443")
+- `tls_config`: The TLS configuration for the server
+
+**Returns:**
+- `Result<()>`: A result indicating success or an error
+
+##### `new` and `run`
+
+Creates and runs a new TLS server daemon with graceful shutdown support.
+
+```rust
+pub fn new(addr: &str, tls_config: TlsConfig, dispatcher: Arc<dyn MessageDispatcher>) -> ServerHandle
+pub async fn run(&self) -> Result<()>
+```
+
+**Parameters:**
+- `addr`: The address to bind the server to (e.g., "127.0.0.1:8443")
+- `tls_config`: The TLS configuration for the server
+- `dispatcher`: The message dispatcher to use for handling messages
+
+**Returns:**
+- `ServerHandle`: A handle to control the server, including shutdown
+- `Result<()>`: A result indicating success or an error when calling `run()`
+
+**Example:**
+```rust
+use network_protocol::service::tls_daemon;
+use network_protocol::transport::tls::TlsConfig;
+use network_protocol::protocol::dispatcher::EchoDispatcher;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> network_protocol::error::Result<()> {
+    let dispatcher = Arc::new(EchoDispatcher::new());
+    
+    let tls_config = TlsConfig {
+        cert_path: "server.crt",
+        key_path: "server.key",
+        ca_path: Some("ca.crt"),   // For client cert validation
+        verify_client: true,        // Enable mTLS
+    };
+    
+    // Create TLS server with handle for shutdown
+    let server = tls_daemon::new("127.0.0.1:8443", tls_config, dispatcher);
+    
+    // Set up graceful shutdown on Ctrl+C
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
+        println!("Shutting down TLS server gracefully...");
+        server_clone.shutdown(Some(Duration::from_secs(10))).await;
+    });
+    
+    // Run server until shutdown is called
+    server.run().await?;
+    println!("TLS Server has shut down successfully");
+    Ok(())
 }
 ```
 

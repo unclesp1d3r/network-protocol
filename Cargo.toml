@@ -1,6 +1,6 @@
 [package]
 name = "network-protocol"
-version = "0.9.0"
+version = "0.9.3"
 
 edition = "2021"
 readme = "README.md"
@@ -10,18 +10,19 @@ authors = [
     "James Gober <code@jamesgober.dev>"
 ]
 
-description = "Secure, high-performance protocol core for Rust applications and services."
+description = "Secure, high-performance protocol core with TLS support and graceful shutdown capabilities for Rust applications and services."
 keywords = [
     "network", 
     "protocol", 
     "secure", 
     "transport", 
-    "messaging"
+    "tls"
 ]
 categories = [
     "network-programming", 
     "asynchronous",
-    "cryptography"
+    "cryptography",
+    "authentication"
 ]
 documentation = "https://docs.rs/network-protocol"
 repository = "https://github.com/jamesgober/network-protocol"
