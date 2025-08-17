@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 
-## [0.9.3] - 2023-09-15
+## [0.9.3] - 2025-08-17
 
 ### Added
 - Cross-platform support for local transport (Windows compatibility)
@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
-## [0.9.0] - 2023-07-21
+## [0.9.0] - 2025-07-29
 
 ### Added
 - Initial release of Network Protocol
