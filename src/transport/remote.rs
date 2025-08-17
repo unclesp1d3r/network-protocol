@@ -36,13 +36,13 @@ use std::net::SocketAddr;
 pub async fn start_server(addr: &str) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
 
-    println!("[server] listening on {}", addr);
+    println!("[server] listening on {addr}");
 
     loop {
         let (stream, peer) = listener.accept().await?;
         tokio::spawn(async move {
             if let Err(e) = handle_connection(stream, peer).await {
-                eprintln!("[server] connection error: {}", e);
+                eprintln!("[server] connection error: {e}");
             }
         });
     }
@@ -52,22 +52,22 @@ pub async fn start_server(addr: &str) -> Result<()> {
 async fn handle_connection(stream: TcpStream, peer: SocketAddr) -> Result<()> {
     let mut framed = Framed::new(stream, PacketCodec);
 
-    println!("[server] connected: {}", peer);
+    println!("[server] connected: {peer}");
 
     while let Some(packet) = framed.next().await {
         match packet {
             Ok(pkt) => {
-                println!("[server] received {} bytes from {}...", pkt.payload.len(), peer);
+                println!("[server] received {} bytes from {peer}...", pkt.payload.len());
                 on_packet(pkt, &mut framed).await?;
             }
             Err(e) => {
-                eprintln!("[server] protocol error from {}: {}", peer, e);
+                eprintln!("[server] protocol error from {peer}: {e}");
                 break;
             }
         }
     }
 
-    println!("[server] disconnected: {}", peer);
+    println!("[server] disconnected: {peer}");
     Ok(())
 }
 

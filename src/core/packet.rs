@@ -38,7 +38,7 @@ impl Packet {
             return Err(ProtocolError::InvalidHeader);
         }
 
-        if &buf[0..4] != MAGIC_BYTES {
+        if buf[0..4] != MAGIC_BYTES {
             return Err(ProtocolError::InvalidHeader);
         }
 

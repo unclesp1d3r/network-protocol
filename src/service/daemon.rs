@@ -14,7 +14,7 @@ use crate::error::Result;
 /// Start a secure server and listen for connections
 pub async fn start(addr: &str) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    println!("[daemon] listening on {}", addr);
+    println!("[daemon] listening on {addr}");
 
     // 🔁 Shared dispatcher
     let dispatcher = Arc::new({
@@ -26,7 +26,7 @@ pub async fn start(addr: &str) -> Result<()> {
 
     loop {
         let (stream, peer) = listener.accept().await?;
-        println!("[daemon] connection from {}", peer);
+        println!("[daemon] connection from {peer}");
         let dispatcher = dispatcher.clone();
 
         tokio::spawn(async move {
@@ -58,28 +58,28 @@ pub async fn start(addr: &str) -> Result<()> {
                 let msg: Message = match conn.secure_recv().await {
                     Ok(m) => m,
                     Err(e) => {
-                        eprintln!("[daemon] recv error from {}: {}", peer, e);
+                        eprintln!("[daemon] recv error from {peer}: {e}");
                         break;
                     }
                 };
 
-                println!("[daemon] received from {}: {:?}", peer, msg);
+                println!("[daemon] received from {peer}: {msg:?}");
 
                 match dispatcher.dispatch(&msg) {
                     Ok(reply) => {
                         if let Err(e) = conn.secure_send(reply).await {
-                            eprintln!("[daemon] send error: {}", e);
+                            eprintln!("[daemon] send error: {e}");
                             break;
                         }
                     }
                     Err(e) => {
-                        eprintln!("[daemon] dispatch error: {}", e);
+                        eprintln!("[daemon] dispatch error: {e}");
                         break;
                     }
                 }
             }
 
-            println!("[daemon] disconnected: {}", peer);
+            println!("[daemon] disconnected: {peer}");
         });
     }
 }

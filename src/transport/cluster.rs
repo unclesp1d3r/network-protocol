@@ -33,12 +33,12 @@ impl Cluster {
                 if let Ok(mut client) = Client::connect(&node.addr).await {
                     if let Ok(Message::Pong) = client.send_and_wait(Message::Ping).await {
                         node.last_seen = Some(Instant::now());
-                        println!("[cluster] {} alive", id);
+                        println!("[cluster] {id} alive");
                     } else {
-                        println!("[cluster] {} timeout", id);
+                        println!("[cluster] {id} timeout");
                     }
                 } else {
-                    println!("[cluster] {} unreachable", id);
+                    println!("[cluster] {id} unreachable");
                 }
             }
 
