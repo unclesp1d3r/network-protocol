@@ -8,6 +8,7 @@ use network_protocol::transport::tls::{TlsServerConfig, TlsClientConfig};
 use network_protocol::service::tls_client::TlsClient;
 
 const TEST_PORT: u16 = 49152; // Use a high port number for tests
+const TEST_PORT_TAMPER: u16 = 49153; // Second port for tampering test
 const CERT_PATH: &str = "tests/test_cert.pem";
 const KEY_PATH: &str = "tests/test_key.pem";
 
@@ -34,7 +35,7 @@ async fn test_tls_communication() -> Result<()> {
     // Start TLS server in a separate task
     let server_handle = tokio::spawn(async move {
         let config = TlsServerConfig::new(cert_path, key_path);
-        network_protocol::service::tls_daemon::start("127.0.0.1:49152", config).await
+        network_protocol::service::tls_daemon::start(&format!("127.0.0.1:{}", TEST_PORT), config).await
     });
     
     // Wait for server to start
@@ -42,7 +43,7 @@ async fn test_tls_communication() -> Result<()> {
     
     // Connect with TLS client, using insecure mode since we're using self-signed certs
     let config = TlsClientConfig::new("localhost").insecure();
-    let mut client = TlsClient::connect("127.0.0.1:49152", config).await?;
+    let mut client = TlsClient::connect(&format!("127.0.0.1:{}", TEST_PORT), config).await?;
     
     // Test ping/pong
     let response = client.request(Message::Ping).await?;
@@ -84,10 +85,11 @@ async fn test_tls_tampering_protection() -> Result<()> {
     let (cert_path, key_path) = generate_test_certificates()?;
     
     // Start TLS server
-    let server_addr = "127.0.0.1:49153";
+    let server_addr = format!("127.0.0.1:{}", TEST_PORT_TAMPER);
+    let server_addr_clone = server_addr.clone();
     let server_handle = tokio::spawn(async move {
         let config = TlsServerConfig::new(cert_path, key_path);
-        network_protocol::service::tls_daemon::start(server_addr, config).await
+        network_protocol::service::tls_daemon::start(&server_addr_clone, config).await
     });
     
     // Wait for server to start
@@ -95,7 +97,7 @@ async fn test_tls_tampering_protection() -> Result<()> {
     
     // Connect with TLS client
     let config = TlsClientConfig::new("localhost").insecure();
-    let mut client = TlsClient::connect(server_addr, config).await?;
+    let mut client = TlsClient::connect(&server_addr, config).await?;
     
     // Verify the connection works
     let response = client.request(Message::Ping).await?;

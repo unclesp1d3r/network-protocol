@@ -78,15 +78,15 @@ mod tests {
         std::env::set_var("TEST_FIXED_KEY", "1");
         
         // Reset all handshake state
-        clear_handshake_data();
+        let _ = clear_handshake_data();
         
         // Use explicit nonce for testing
         let client_nonce = [203, 83, 7, 69, 25, 136, 175, 49, 245, 140, 237, 135, 95, 113, 53, 97];
-        set_client_nonce_for_test(client_nonce);
+        let _ = set_client_nonce_for_test(client_nonce);
         
         // =================== Step 1: Client init ===================
         // Client sends handshake initialization with an ephemeral key pair and nonce
-        let init_msg = client_secure_handshake_init();
+        let init_msg = client_secure_handshake_init().expect("Client init should succeed");
         
         // Extract client message data
         let (client_pub_key, _, timestamp) = match &init_msg {
@@ -98,7 +98,7 @@ mod tests {
         
         // Explicitly set the client nonce in the handshake state to ensure consistency
         // This helps avoid race conditions when multiple tests run concurrently
-        set_client_nonce_for_test(client_nonce);
+        let _ = set_client_nonce_for_test(client_nonce);
         
         println!("[TEST] Client nonce from message: {:?}", client_nonce);
         
@@ -122,10 +122,10 @@ mod tests {
         println!("[TEST] Server public key: {:?}", server_pub_key);
         
         // Make sure the server uses the same nonce throughout the handshake
-        set_server_nonce_for_test(server_nonce);
+        let _ = set_server_nonce_for_test(server_nonce);
         
         // Ensure client has the correct server public key stored
-        set_server_pub_key_for_test(server_pub_key);
+        let _ = set_server_pub_key_for_test(server_pub_key);
         
         // Verify server correctly hashed client nonce
         assert_eq!(client_nonce_hash, nonce_verification, "Server nonce verification hash doesn't match client nonce");
@@ -176,10 +176,10 @@ mod tests {
         std::env::set_var("TEST_INTEGRATION", "1");
         
         // Clear any previous handshake data with complete state reset
-        clear_handshake_data();
+        let _ = clear_handshake_data();
         
         // Get initial client message
-        let init_message = client_secure_handshake_init();
+        let init_message = client_secure_handshake_init().expect("Client init should succeed");
         
         // Extract client data
         let (client_pub_key, timestamp, client_nonce) = match init_message {
@@ -218,10 +218,10 @@ mod tests {
         std::env::set_var("TEST_INTEGRATION", "1");
         
         // Clear any previous handshake data with complete state reset
-        clear_handshake_data();
+        let _ = clear_handshake_data();
         
         // Step 1: Client initiates handshake
-        let init_message = client_secure_handshake_init();
+        let init_message = client_secure_handshake_init().expect("Client init should succeed");
         
         // Extract client data
         let (client_pub_key, timestamp, client_nonce) = match init_message {

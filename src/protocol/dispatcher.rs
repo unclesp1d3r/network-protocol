@@ -22,16 +22,26 @@ impl Dispatcher {
         }
     }
 
-    pub fn register<F>(&self, opcode: &str, handler: F)
+    pub fn register<F>(&self, opcode: &str, handler: F) -> Result<()>
     where
         F: Fn(&Message) -> Result<Message> + Send + Sync + 'static,
     {
-        self.handlers.write().unwrap().insert(opcode.to_string(), Box::new(handler));
+        match self.handlers.write() {
+            Ok(mut handlers) => {
+                handlers.insert(opcode.to_string(), Box::new(handler));
+                Ok(())
+            },
+            Err(_) => Err(ProtocolError::Custom("Failed to acquire write lock on dispatcher handlers".to_string())),
+        }
     }
 
     pub fn dispatch(&self, msg: &Message) -> Result<Message> {
         let opcode = get_opcode(msg);
-        let handlers = self.handlers.read().unwrap();
+        
+        let handlers = match self.handlers.read() {
+            Ok(handlers) => handlers,
+            Err(_) => return Err(ProtocolError::Custom("Failed to acquire read lock on dispatcher handlers".to_string())),
+        };
 
         match handlers.get(&opcode) {
             Some(handler) => handler(msg),

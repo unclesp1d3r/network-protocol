@@ -52,7 +52,7 @@ impl Client {
         
         // --- Secure Handshake Process ---
         // Step 1: Send client init with public key, nonce, and timestamp
-        let init_msg = client_secure_handshake_init();
+        let init_msg = client_secure_handshake_init()?;
         let init_bytes = bincode::serialize(&init_msg)?;
         framed.send(Packet {
             version: 1,

@@ -51,11 +51,11 @@ static SERVER_KEYS: Lazy<Mutex<ServerKeys>> = Lazy::new(|| {
 });
 
 /// Get the current timestamp in milliseconds
-fn current_timestamp() -> u64 {
+fn current_timestamp() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64
+        .map(|duration| duration.as_millis() as u64)
+        .map_err(|_| ProtocolError::Custom("System time error: time went backwards".to_string()))
 }
 
 /// Generate a cryptographically secure random nonce
@@ -67,34 +67,42 @@ fn generate_nonce() -> [u8; 16] {
 
 #[cfg(test)]
 /// Set client nonce directly for testing purposes
-pub fn set_client_nonce_for_test(nonce: [u8; 16]) {
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+pub fn set_client_nonce_for_test(nonce: [u8; 16]) -> Result<()> {
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.client_nonce = Some(nonce);
     println!("[TEST] Manually set client nonce: {:?}", nonce);
+    Ok(())
 }
 
 #[cfg(test)]
 /// Set server nonce directly for testing purposes
-pub fn set_server_nonce_for_test(nonce: [u8; 16]) {
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
+pub fn set_server_nonce_for_test(nonce: [u8; 16]) -> Result<()> {
+    let mut server_keys = SERVER_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.server_nonce = Some(nonce);
     println!("[TEST] Manually set server nonce: {:?}", nonce);
+    Ok(())
 }
 
 #[cfg(test)]
 /// Set server public key in client state for testing purposes
-pub fn set_server_pub_key_for_test(pub_key: [u8; 32]) {
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+pub fn set_server_pub_key_for_test(pub_key: [u8; 32]) -> Result<()> {
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.server_public = Some(pub_key);
     println!("[TEST] Manually set server public key in client state: {:?}", pub_key);
+    Ok(())
 }
 
 #[cfg(test)]
 /// Set server's nonce directly in the test
-pub fn set_server_test_nonce(nonce: [u8; 16]) {
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
+pub fn set_server_test_nonce(nonce: [u8; 16]) -> Result<()> {
+    let mut server_keys = SERVER_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.server_nonce = Some(nonce);
     println!("[TEST] Manually set server nonce: {:?}", nonce);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -173,37 +181,44 @@ pub fn create_test_server_key_pair() -> (EphemeralSecret, [u8; 32]) {
 
 #[cfg(test)]
 /// Set up test keys in global state
-pub fn setup_test_keys() {
+pub fn setup_test_keys() -> Result<()> {
     let (client_secret, client_public, server_secret, server_public) = get_test_keys();
     
     // Set client keys
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.secret = Some(client_secret);
     client_keys.public = Some(client_public.to_bytes());
     client_keys.server_public = Some(server_public.to_bytes());
     
     // Set server keys
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
+    let mut server_keys = SERVER_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.secret = Some(server_secret);
     server_keys.public = Some(server_public.to_bytes());
     server_keys.client_public = Some(client_public.to_bytes());
     
     println!("[TEST] Set up test keys in global state");
+    Ok(())
 }
 
 /// Verify that a timestamp is recent enough
 /// Default threshold is 30 seconds
 pub fn verify_timestamp(timestamp: u64, max_age_seconds: u64) -> bool {
-    let current = current_timestamp();
+    let current = match current_timestamp() {
+        Ok(time) => time,
+        Err(_) => return false, // If we can't get current time, fail the verification
+    };
+    
     let max_age_ms = max_age_seconds * 1000;
     
     // Check if timestamp is from the future (with a small tolerance)
-    if timestamp > current + 5000 { // 5 second tolerance
+    if timestamp > current + 5000 {
         return false;
     }
     
     // Check if timestamp is too old
-    if current - timestamp > max_age_ms {
+    if current > timestamp && current - timestamp > max_age_ms {
         return false;
     }
     
@@ -242,27 +257,30 @@ fn derive_key_from_shared_secret(shared_secret: &SharedSecret, client_nonce: &[u
 }
 
 /// Initiates secure handshake from the client side.
-/// Returns a Message that should be sent to the server.
-pub fn client_secure_handshake_init() -> Message {
+/// Returns a Result with the Message that should be sent to the server or an error.
+pub fn client_secure_handshake_init() -> Result<Message> {
     // Generate a new client key pair using OsRng
     let client_secret = EphemeralSecret::random_from_rng(OsRng);
     let client_public = PublicKey::from(&client_secret);
     
     // Generate nonce and timestamp
     let nonce = generate_nonce();
-    let timestamp = current_timestamp();
+    let timestamp = current_timestamp()?;
     
     // Store the key pair and nonce for later use
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+    let mut client_keys = match CLIENT_KEYS.lock() {
+        Ok(guard) => guard,
+        Err(_) => return Err(ProtocolError::HandshakeError("Failed to lock client keys".to_string())),
+    };
     client_keys.secret = Some(client_secret);
     client_keys.public = Some(client_public.to_bytes());
     client_keys.client_nonce = Some(nonce);
     
-    Message::SecureHandshakeInit {
+    Ok(Message::SecureHandshakeInit {
         pub_key: client_public.to_bytes(),
         timestamp,
         nonce,
-    }
+    })
 }
 
 /// Generates server response to client handshake initialization.
@@ -273,7 +291,8 @@ pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: 
         return Err(ProtocolError::HandshakeError("Invalid timestamp".to_string()));
     }
     
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
+    let mut server_keys = SERVER_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     
     // Check if we already have a server secret (for testing)
     let (server_secret, server_public) = if server_keys.secret.is_some() {
@@ -281,7 +300,8 @@ pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: 
         println!("[server_response] Using existing server secret key (test mode)");
         
         // Take the secret out of the global state
-        let secret = server_keys.secret.take().unwrap();
+        let secret = server_keys.secret.take()
+            .ok_or_else(|| ProtocolError::HandshakeError("Server secret unexpectedly missing".to_string()))?;
         let public = PublicKey::from(&secret);
         (secret, public)
     } else {
@@ -343,7 +363,8 @@ fn client_secure_handshake_verify_internal(
     test_client_nonce: Option<[u8; 16]>
 ) -> Result<Message> {
     // Get client data from storage
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     
     #[cfg(test)]
     println!("[client_verify] Processing server response");
@@ -421,7 +442,8 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
     }
 
     // Get server data
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
+    let mut server_keys = SERVER_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     
     #[cfg(test)]
     println!("[server_finalize] Getting stored server key data");
@@ -519,7 +541,8 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     }
 
     // Get client data
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     
     #[cfg(test)]
     println!("[client_derive_session_key] Getting stored client key data");
@@ -589,7 +612,7 @@ pub fn derive_shared_key(client_nonce: u64) -> [u8; 32] {
 
 /// Legacy client handshake function for compatibility
 /// Now uses the secure handshake implementation
-pub fn client_handshake_init() -> (u64, Message) {
+pub fn client_handshake_init() -> Result<(u64, Message)> {
     let mut rng = OsRng;
     let nonce = rng.next_u64();
     let timestamp = std::time::SystemTime::now()
@@ -606,17 +629,18 @@ pub fn client_handshake_init() -> (u64, Message) {
     nonce_bytes[0..8].copy_from_slice(&nonce.to_le_bytes());
     
     // Store the key pair and nonce for later use
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.secret = Some(client_secret);
     client_keys.public = Some(client_public.to_bytes());
     client_keys.client_nonce = Some(nonce_bytes);
     
     // Return the nonce and secure message
-    (nonce, Message::SecureHandshakeInit { 
+    Ok((nonce, Message::SecureHandshakeInit { 
         pub_key: client_public.to_bytes(),
         timestamp,
         nonce: nonce_bytes,
-    })
+    }))
 }
 
 /// Legacy handshake verification function for compatibility
@@ -670,9 +694,10 @@ pub fn server_handshake_response(client_nonce: u64) -> Message {
 }
 
 /// Clears handshake data for clean test runs
-pub fn clear_handshake_data() {
+pub fn clear_handshake_data() -> Result<()> {
     // Clear client state
-    let mut client_keys = CLIENT_KEYS.lock().unwrap();
+    let mut client_keys = CLIENT_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     *client_keys = ClientKeys {
         secret: None,
         public: None,
@@ -682,7 +707,8 @@ pub fn clear_handshake_data() {
     };
     
     // Clear server state
-    let mut server_keys = SERVER_KEYS.lock().unwrap();
+    let mut server_keys = SERVER_KEYS.lock()
+        .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     *server_keys = ServerKeys {
         secret: None,
         public: None,
@@ -693,4 +719,6 @@ pub fn clear_handshake_data() {
     
     #[cfg(test)]
     println!("[clear_handshake_data] All handshake data has been cleared");
+    
+    Ok(())
 }

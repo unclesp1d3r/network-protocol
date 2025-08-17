@@ -42,16 +42,34 @@
 
 use thiserror::Error;
 use std::io;
+use serde::{Serialize, Deserialize};
 
 pub type Result<T> = std::result::Result<T, ProtocolError>;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum ProtocolError {
     #[error("I/O error: {0}")]
+    #[serde(skip_serializing, skip_deserializing)]
     Io(#[from] io::Error),
 
     #[error("Serialization error: {0}")]
+    #[serde(skip_serializing, skip_deserializing)]
     Serialization(#[from] bincode::Error),
+    
+    #[error("Serialize error: {0}")]
+    SerializeError(String),
+    
+    #[error("Deserialize error: {0}")]
+    DeserializeError(String),
+    
+    #[error("Transport error: {0}")]
+    TransportError(String),
+    
+    #[error("Connection closed")]
+    ConnectionClosed,
+    
+    #[error("Security error: {0}")]
+    SecurityError(String),
 
     #[error("Invalid protocol header")]
     InvalidHeader,

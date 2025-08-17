@@ -29,11 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced manual slice copying with more efficient `copy_from_slice` operations
 - Added proper deprecated attribute handling for legacy message variants
 - Fixed key derivation to ensure consistent shared secrets in secure handshake
+- Replaced all `unwrap()` and `expect()` calls with proper error handling using Result propagation
+- Added serialization support for ProtocolError with serde's Serialize/Deserialize traits
+- Updated return types for handshake functions to use Result consistently
+- Modified client handshake code to properly handle Result types
+- Implemented graceful shutdown mechanism for the daemon server with proper signal handling
+- Added comprehensive error propagation throughout the service layer
 
 ### Fixed
 - Fixed intermittent test failures in secure handshake tests
 - Added deterministic test keys for stable test behavior
 - Implemented explicit nonce setting for reproducible tests
+- Fixed integration tests to use random available ports to avoid port conflicts
+- Corrected type mismatches in client connection code
+- Resolved unused variable warnings
+- Fixed unused Result warnings in daemon and server code
 
 ### Security
 - Implemented Elliptic Curve Diffie-Hellman (ECDH) key exchange using x25519-dalek

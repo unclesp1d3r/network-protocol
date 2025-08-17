@@ -23,8 +23,8 @@ pub async fn start(addr: &str, tls_config: TlsServerConfig) -> Result<()> {
     // 🔁 Shared dispatcher
     let dispatcher = Arc::new({
         let d = Dispatcher::new();
-        d.register("PING", |_| Ok(Message::Pong));
-        d.register("ECHO", |msg| Ok(msg.clone()));
+        let _ = d.register("PING", |_| Ok(Message::Pong));
+        let _ = d.register("ECHO", |msg| Ok(msg.clone()));
         d
     });
 

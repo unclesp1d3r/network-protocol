@@ -99,11 +99,14 @@ impl TlsServerConfig {
     
     /// Generate a self-signed certificate for development/testing purposes
     pub fn generate_self_signed<P: AsRef<Path>>(cert_path: P, key_path: P) -> io::Result<Self> {
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Certificate generation error: {}", e)))?;
         
         // Write certificate
         let mut cert_file = File::create(&cert_path)?;
-        cert_file.write_all(cert.serialize_pem().unwrap().as_bytes())?;
+        let pem = cert.serialize_pem()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Certificate serialization error: {}", e)))?;
+        cert_file.write_all(pem.as_bytes())?;
         
         // Write private key
         let mut key_file = File::create(&key_path)?;
