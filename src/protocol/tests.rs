@@ -100,11 +100,11 @@ mod tests {
         // This helps avoid race conditions when multiple tests run concurrently
         let _ = set_client_nonce_for_test(client_nonce);
         
-        println!("[TEST] Client nonce from message: {:?}", client_nonce);
+        println!("[TEST] Client nonce from message: {client_nonce:?}");
         
         // Hash client nonce for verification check
         let client_nonce_hash = test_hash_nonce(&client_nonce);
-        println!("[TEST] Client nonce hash: {:?}", client_nonce_hash);
+        println!("[TEST] Client nonce hash: {client_nonce_hash:?}");
         
         // =================== Step 2: Server responds ===================
         // Server creates response message
@@ -118,8 +118,8 @@ mod tests {
             _ => panic!("Expected SecureHandshakeResponse message"),
         };
         
-        println!("[TEST] Server nonce from response: {:?}", server_nonce);
-        println!("[TEST] Server public key: {:?}", server_pub_key);
+        println!("[TEST] Server nonce from response: {server_nonce:?}");
+        println!("[TEST] Server public key: {server_pub_key:?}");
         
         // Make sure the server uses the same nonce throughout the handshake
         let _ = set_server_nonce_for_test(server_nonce);
@@ -159,8 +159,8 @@ mod tests {
         let client_key = client_derive_session_key_with_test_nonce(client_nonce)
             .expect("Client should be able to derive session key");
             
-        println!("Server key: {:?}", server_key);
-        println!("Client key: {:?}", client_key);
+        println!("Server key: {server_key:?}");
+        println!("Client key: {client_key:?}");
             
         // Keys should match (validates the Diffie-Hellman exchange worked)
         assert_eq!(server_key, client_key, "Client and server session keys don't match");

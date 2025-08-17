@@ -48,7 +48,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
     let path_string = path.as_ref().to_string_lossy().to_string();
     
     let listener = UnixListener::bind(&path)?;
-    println!("[local] listening on unix socket at {}", path_string);
+    println!("[local] listening on unix socket at {path_string}");
     
     // Track active connections
     let active_connections = Arc::new(Mutex::new(0u32));
@@ -72,7 +72,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[local] Waiting for {} connection(s) to close", connections);
+                            println!("[local] Waiting for {connections} connection(s) to close");
                             if connections == 0 {
                                 println!("[local] All connections closed, shutting down");
                                 break;
@@ -84,9 +84,9 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                 // Clean up socket file
                 if Path::new(&path_string).exists() {
                     if let Err(e) = tokio::fs::remove_file(&path_string).await {
-                        eprintln!("[local] Failed to remove socket file: {}", e);
+                        eprintln!("[local] Failed to remove socket file: {e}");
                     } else {
-                        println!("[local] Removed socket file: {}", path_string);
+                        println!("[local] Removed socket file: {path_string}");
                     }
                 }
                 
@@ -121,7 +121,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                         });
                     }
                     Err(e) => {
-                        eprintln!("[local] Error accepting connection: {}", e);
+                        eprintln!("[local] Error accepting connection: {e}");
                     }
                 }
             }

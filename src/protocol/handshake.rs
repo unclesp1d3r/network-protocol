@@ -71,7 +71,7 @@ pub fn set_client_nonce_for_test(nonce: [u8; 16]) -> Result<()> {
     let mut client_keys = CLIENT_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.client_nonce = Some(nonce);
-    println!("[TEST] Manually set client nonce: {:?}", nonce);
+    println!("[TEST] Manually set client nonce: {nonce:?}");
     Ok(())
 }
 
@@ -81,7 +81,7 @@ pub fn set_server_nonce_for_test(nonce: [u8; 16]) -> Result<()> {
     let mut server_keys = SERVER_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.server_nonce = Some(nonce);
-    println!("[TEST] Manually set server nonce: {:?}", nonce);
+    println!("[TEST] Manually set server nonce: {nonce:?}");
     Ok(())
 }
 
@@ -91,7 +91,7 @@ pub fn set_server_pub_key_for_test(pub_key: [u8; 32]) -> Result<()> {
     let mut client_keys = CLIENT_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.server_public = Some(pub_key);
-    println!("[TEST] Manually set server public key in client state: {:?}", pub_key);
+    println!("[TEST] Manually set server public key in client state: {pub_key:?}");
     Ok(())
 }
 
@@ -101,7 +101,7 @@ pub fn set_server_test_nonce(nonce: [u8; 16]) -> Result<()> {
     let mut server_keys = SERVER_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.server_nonce = Some(nonce);
-    println!("[TEST] Manually set server nonce: {:?}", nonce);
+    println!("[TEST] Manually set server nonce: {nonce:?}");
     Ok(())
 }
 
@@ -251,7 +251,7 @@ fn derive_key_from_shared_secret(shared_secret: &SharedSecret, client_nonce: &[u
     let result = hasher.finalize().into();
     
     #[cfg(test)]
-    println!("derive_key result: {:?}", result);
+    println!("derive_key result: {result:?}");
     
     result
 }
@@ -381,7 +381,7 @@ fn client_secure_handshake_verify_internal(
     // For verification, use either the test nonce or the stored nonce
     let client_nonce = if let Some(nonce) = test_client_nonce {
         #[cfg(test)]
-        println!("[client_verify] Using explicit test client nonce: {:?}", nonce);
+        println!("[client_verify] Using explicit test client nonce: {nonce:?}");
         nonce
     } else if let Some(nonce) = client_keys.client_nonce.as_ref() {
         *nonce
@@ -400,7 +400,7 @@ fn client_secure_handshake_verify_internal(
     let expected_verification = hash_nonce(&client_nonce);
     
     #[cfg(test)]
-    println!("[client_verify] Expected: {:?}\n[client_verify] Actual:   {:?}", expected_verification, nonce_verification);
+    println!("[client_verify] Expected: {expected_verification:?}\n[client_verify] Actual:   {nonce_verification:?}");
     
     if expected_verification != nonce_verification {
         // For unit tests (but not integration/benchmark tests), skip this check
@@ -424,7 +424,7 @@ fn client_secure_handshake_verify_internal(
     let hash = hash_nonce(&server_nonce);
     
     #[cfg(test)]
-    println!("[client_verify] Generated server nonce hash: {:?}", hash);
+    println!("[client_verify] Generated server nonce hash: {hash:?}");
     
     // Send back verification
     Ok(Message::SecureHandshakeConfirm {
@@ -458,12 +458,12 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
     #[cfg(test)]
     println!("[server_finalize] Processing client confirmation");
     #[cfg(test)]
-    println!("[server_finalize] Found server nonce: {:?}", server_nonce);
+    println!("[server_finalize] Found server nonce: {server_nonce:?}");
     
     let expected_verification = hash_nonce(&server_nonce);
     
     #[cfg(test)]
-    println!("[server_finalize] Expected: {:?}\n[server_finalize] Actual:   {:?}", expected_verification, nonce_verification);
+    println!("[server_finalize] Expected: {expected_verification:?}\n[server_finalize] Actual:   {nonce_verification:?}");
     
     if expected_verification != nonce_verification {
         #[cfg(test)]
@@ -484,7 +484,7 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
         .ok_or_else(|| ProtocolError::HandshakeError("Client public key not found".to_string()))?;
         
     #[cfg(test)]
-    println!("[server_finalize] Client public: {:?}", client_public_bytes);
+    println!("[server_finalize] Client public: {client_public_bytes:?}");
     
     // Convert bytes to PublicKey
     let client_public = PublicKey::from(client_public_bytes);
@@ -498,10 +498,10 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
         .ok_or_else(|| ProtocolError::HandshakeError("Client nonce not found".to_string()))?;
     
     #[cfg(test)]
-    println!("[server_finalize] Client nonce: {:?}", client_nonce);
+    println!("[server_finalize] Client nonce: {client_nonce:?}");
     
     #[cfg(test)]
-    println!("[server_finalize] Server nonce: {:?}", server_nonce);
+    println!("[server_finalize] Server nonce: {server_nonce:?}");
     
     // Derive final key using shared secret and both nonces
     let key = derive_key_from_shared_secret(&shared_secret, &client_nonce, &server_nonce);
@@ -560,7 +560,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     // Use provided test nonce if available, otherwise use stored nonce
     let client_nonce = if let Some(nonce) = test_nonce {
         #[cfg(test)]
-        println!("[client_derive_session_key] Using explicit test nonce: {:?}", nonce);
+        println!("[client_derive_session_key] Using explicit test nonce: {nonce:?}");
         nonce
     } else {
         match client_keys.client_nonce {
@@ -575,10 +575,10 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     };
     
     #[cfg(test)]
-    println!("[client_derive_session_key] Client nonce: {:?}", client_nonce);
+    println!("[client_derive_session_key] Client nonce: {client_nonce:?}");
     
     #[cfg(test)]
-    println!("[client_derive_session_key] Server nonce: {:?}", server_nonce);
+    println!("[client_derive_session_key] Server nonce: {server_nonce:?}");
     
     // Calculate shared secret
     let server_public = PublicKey::from(server_public_bytes);

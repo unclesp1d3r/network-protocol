@@ -68,7 +68,7 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[tls_daemon] Waiting for {} connection(s) to close", connections);
+                            println!("[tls_daemon] Waiting for {connections} connection(s) to close");
                             if connections == 0 {
                                 println!("[tls_daemon] All connections closed, shutting down");
                                 break;

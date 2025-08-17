@@ -20,7 +20,7 @@ async fn test_tls_daemon_graceful_shutdown() -> network_protocol::error::Result<
     // Setup server configuration
     let cert_path = PathBuf::from(CERT_PATH);
     let key_path = PathBuf::from(KEY_PATH);
-    let server_addr_str = format!("127.0.0.1:{}", TEST_PORT);
+    let server_addr_str = format!("127.0.0.1:{TEST_PORT}");
     
     // Create shutdown channels
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
@@ -65,7 +65,7 @@ async fn test_tls_daemon_graceful_shutdown() -> network_protocol::error::Result<
     let new_config = network_protocol::transport::tls::TlsClientConfig::new("localhost").insecure();
     match TlsClient::connect(&server_addr_str, new_config).await {
         Ok(_) => panic!("Server accepted connection during shutdown"),
-        Err(e) => println!("[test] Connection failed during shutdown as expected: {}", e),
+        Err(e) => println!("[test] Connection failed during shutdown as expected: {e}"),
     }
     
     // Wait for server to fully shut down

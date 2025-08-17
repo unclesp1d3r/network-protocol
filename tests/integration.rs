@@ -19,7 +19,7 @@ async fn test_secure_handshake_and_messages() -> Result<(), Box<dyn Error>> {
     // Spawn the daemon server in background
     tokio::spawn(async move {
         if let Err(e) = daemon::start(&server_addr).await {
-            eprintln!("Server error in test: {}", e);
+            eprintln!("Server error in test: {e}");
         }
     });
 
@@ -30,39 +30,39 @@ async fn test_secure_handshake_and_messages() -> Result<(), Box<dyn Error>> {
     let mut client = match Client::connect(&addr).await {
         Ok(client) => client,
         Err(e) => {
-            panic!("Failed to connect: {}", e);
+            panic!("Failed to connect: {e}");
         }
     };
 
     // --- Test Ping → Pong ---
     if let Err(e) = client.send(Message::Ping).await {
-        panic!("Failed to send ping: {}", e);
+        panic!("Failed to send ping: {e}");
     }
         
     let response = match client.recv().await {
         Ok(resp) => resp,
-        Err(e) => panic!("No pong received: {}", e),
+        Err(e) => panic!("No pong received: {e}"),
     };
-    assert!(matches!(response, Message::Pong), "Expected Pong, got {:?}", response);
+    assert!(matches!(response, Message::Pong), "Expected Pong, got {response:?}");
 
     // --- Test Echo ---
     let echo_msg = "Secure echo test!".to_string();
     if let Err(e) = client.send(Message::Echo(echo_msg.clone())).await {
-        panic!("Failed to send echo: {}", e);
+        panic!("Failed to send echo: {e}");
     }
         
     let response = match client.recv().await {
         Ok(resp) => resp,
-        Err(e) => panic!("No echo received: {}", e),
+        Err(e) => panic!("No echo received: {e}"),
     };
     match response {
         Message::Echo(reply) => assert_eq!(reply, echo_msg),
-        _ => panic!("Expected Echo, got {:?}", response),
+        _ => panic!("Expected Echo, got {response:?}"),
     }
 
     // --- Disconnect (optional) ---
     if let Err(e) = client.send(Message::Disconnect).await {
-        panic!("Failed to disconnect: {}", e);
+        panic!("Failed to disconnect: {e}");
     }
         
     Ok(())

@@ -62,18 +62,18 @@ impl BenchmarkClient {
         // Check the nonce verification from server - it should be a hash of our client nonce
         let expected_client_nonce_hash = {
             let mut hasher = Sha256::new();
-            hasher.update(&client_nonce);
+            hasher.update(client_nonce);
             hasher.finalize().to_vec()
         };
         
         // For debug purposes
-        println!("[benchmark_client] Server nonce verification: {:?}", _nonce_verification);
-        println!("[benchmark_client] Expected client nonce hash: {:?}", expected_client_nonce_hash);
+        println!("[benchmark_client] Server nonce verification: {_nonce_verification:?}");
+        println!("[benchmark_client] Expected client nonce hash: {expected_client_nonce_hash:?}");
         
         // Hash the server nonce for our verification response
         let server_nonce_hash = {
             let mut hasher = Sha256::new();
-            hasher.update(&server_nonce);
+            hasher.update(server_nonce);
             let mut result = [0u8; 32];
             result.copy_from_slice(&hasher.finalize()[..]);
             result
@@ -99,8 +99,8 @@ impl BenchmarkClient {
         let key = {
             let mut hasher = Sha256::new();
             hasher.update(shared_secret.as_bytes());
-            hasher.update(&client_nonce);
-            hasher.update(&server_nonce);
+            hasher.update(client_nonce);
+            hasher.update(server_nonce);
             let mut result = [0u8; 32];
             result.copy_from_slice(&hasher.finalize()[..]);
             result

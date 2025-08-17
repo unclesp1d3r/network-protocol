@@ -37,7 +37,7 @@ async fn test_tls_communication() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
     
     // Start TLS server with shutdown capability
-    let server_addr = format!("127.0.0.1:{}", TEST_PORT);
+    let server_addr = format!("127.0.0.1:{TEST_PORT}");
     let server_handle = tokio::spawn(async move {
         let config = TlsServerConfig::new(cert_path, key_path);
         let _ = network_protocol::service::tls_daemon::start_with_shutdown(
@@ -52,7 +52,7 @@ async fn test_tls_communication() -> Result<()> {
     
     // Connect with TLS client, using insecure mode since we're using self-signed certs
     let config = TlsClientConfig::new("localhost").insecure();
-    let mut client = TlsClient::connect(&format!("127.0.0.1:{}", TEST_PORT), config).await?;
+    let mut client = TlsClient::connect(&format!("127.0.0.1:{TEST_PORT}"), config).await?;
     
     // Test ping/pong
     let response = client.request(Message::Ping).await?;
@@ -69,7 +69,7 @@ async fn test_tls_communication() -> Result<()> {
         assert_eq!(command, "ECHO");
         assert_eq!(payload, vec![1, 2, 3, 4]);
     } else {
-        panic!("Expected Custom message, got: {:?}", response);
+        panic!("Expected Custom message, got: {response:?}");
     }
     
     // We're done, so drop the client which will close the connection
@@ -100,7 +100,7 @@ async fn test_tls_tampering_protection() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
     
     // Start TLS server with shutdown capability
-    let server_addr = format!("127.0.0.1:{}", TEST_PORT_TAMPER);
+    let server_addr = format!("127.0.0.1:{TEST_PORT_TAMPER}");
     let server_addr_clone = server_addr.clone();
     let server_handle = tokio::spawn(async move {
         let config = TlsServerConfig::new(cert_path, key_path);

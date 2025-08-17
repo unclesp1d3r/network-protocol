@@ -29,7 +29,7 @@ async fn benchmark_roundtrip_latency() {
             client
         },
         Err(e) => {
-            panic!("Failed to connect: {:?}", e);
+            panic!("Failed to connect: {e:?}");
         }
     };
 
@@ -47,7 +47,7 @@ async fn benchmark_roundtrip_latency() {
         
         // Send ping with error handling
         if let Err(e) = client.send(Message::Ping).await {
-            println!("Error sending ping message: {:?}", e);
+            println!("Error sending ping message: {e:?}");
             continue;
         }
         
@@ -61,12 +61,12 @@ async fn benchmark_roundtrip_latency() {
                         successful += 1;
                     },
                     _ => {
-                        println!("Unexpected response type: {:?}", response);
+                        println!("Unexpected response type: {response:?}");
                     }
                 }
             },
             Ok(Err(e)) => {
-                println!("Error receiving response: {:?}", e);
+                println!("Error receiving response: {e:?}");
             },
             Err(_) => {
                 println!("Timeout waiting for response");
@@ -76,7 +76,7 @@ async fn benchmark_roundtrip_latency() {
 
     if successful > 0 {
         let avg = total / successful;
-        println!("Average roundtrip latency over {} successful packets: {:?} per message", successful, avg);
+        println!("Average roundtrip latency over {successful} successful packets: {avg:?} per message");
     } else {
         println!("No successful ping-pong exchanges completed");
     }
@@ -103,7 +103,7 @@ async fn benchmark_throughput() {
             client
         },
         Err(e) => {
-            panic!("Failed to connect: {:?}", e);
+            panic!("Failed to connect: {e:?}");
         }
     };
 
@@ -120,7 +120,7 @@ async fn benchmark_throughput() {
         
         // Send ping with error handling
         if let Err(e) = client.send(Message::Ping).await {
-            println!("Error sending ping message: {:?}", e);
+            println!("Error sending ping message: {e:?}");
             continue;
         }
         
@@ -133,12 +133,12 @@ async fn benchmark_throughput() {
                         successful += 1;
                     },
                     _ => {
-                        println!("Unexpected response type: {:?}", response);
+                        println!("Unexpected response type: {response:?}");
                     }
                 }
             },
             Ok(Err(e)) => {
-                println!("Error receiving response: {:?}", e);
+                println!("Error receiving response: {e:?}");
             },
             Err(_) => {
                 println!("Timeout waiting for response");
@@ -149,8 +149,7 @@ async fn benchmark_throughput() {
     let elapsed = start.elapsed();
     if successful > 0 {
         let per_sec = successful as f64 / elapsed.as_secs_f64();
-        println!("Throughput: {:.0} messages/sec ({} successful of {} attempts) over {:?} total", 
-                 per_sec, successful, rounds, elapsed);
+        println!("Throughput: {per_sec:.0} messages/sec ({successful} successful of {rounds} attempts) over {elapsed:?} total");
     } else {
         println!("No successful exchanges completed");
     }

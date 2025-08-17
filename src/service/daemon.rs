@@ -64,7 +64,7 @@ pub async fn start(addr: &str) -> Result<()> {
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[daemon] Waiting for {} connection(s) to close", connections);
+                            println!("[daemon] Waiting for {connections} connection(s) to close");
                             if connections == 0 {
                                 println!("[daemon] All connections closed, shutting down");
                                 break;
