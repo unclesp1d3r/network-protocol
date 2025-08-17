@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use bincode;
+use tracing::{info, debug, warn, error, instrument};
 
 use crate::core::codec::PacketCodec;
 use crate::core::packet::Packet;
@@ -16,9 +17,10 @@ use crate::service::secure::SecureConnection;
 use crate::error::{Result, ProtocolError};
 
 /// Start a secure server and listen for connections
+#[instrument(skip(addr), fields(address = %addr))]
 pub async fn start(addr: &str) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    println!("[daemon] listening on {addr}");
+    info!(address = %addr, "Server listening");
 
     // 🔁 Shared dispatcher
     let dispatcher = Arc::new({
@@ -38,7 +40,7 @@ pub async fn start(addr: &str) -> Result<()> {
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         if let Ok(()) = tokio::signal::ctrl_c().await {
-            println!("[daemon] Received shutdown signal, initiating graceful shutdown");
+            info!("Received shutdown signal, initiating graceful shutdown");
             let _ = shutdown_tx_clone.send(()).await;
         }
     });
@@ -48,7 +50,7 @@ pub async fn start(addr: &str) -> Result<()> {
         tokio::select! {
             // Check for shutdown signal
             _ = shutdown_rx.recv() => {     
-                println!("[daemon] Shutting down server. Waiting for connections to close...");
+                info!("Shutting down server. Waiting for connections to close...");
                 
                 // Wait for active connections to close (with timeout)
                 let timeout = tokio::time::sleep(Duration::from_secs(10));
@@ -57,14 +59,14 @@ pub async fn start(addr: &str) -> Result<()> {
                 loop {
                     tokio::select! {
                         _ = &mut timeout => {
-                            println!("[daemon] Shutdown timeout reached, forcing exit");
+                            warn!("Shutdown timeout reached, forcing exit");
                             break;
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[daemon] Waiting for {connections} connection(s) to close");
+                            info!(connections = %connections, "Waiting for connections to close");
                             if connections == 0 {
-                                println!("[daemon] All connections closed, shutting down");
+                                info!("All connections closed, shutting down");
                                 break;
                             }
                         }
@@ -78,7 +80,7 @@ pub async fn start(addr: &str) -> Result<()> {
             accept_result = listener.accept() => {
                 match accept_result {
                     Ok((stream, peer)) => {
-                        println!("[daemon] connection from {peer}");
+                        info!(peer = %peer, "New connection established");
                         let dispatcher = dispatcher.clone();
                         let active_connections = active_connections.clone();
                         // We don't need this clone if we're not using it in this scope
@@ -95,7 +97,7 @@ pub async fn start(addr: &str) -> Result<()> {
                         });
                     }
                     Err(e) => {
-                        eprintln!("[daemon] Error accepting connection: {e}");
+                        error!(error = %e, "Error accepting connection");
                     }
                 }
             }
@@ -104,6 +106,7 @@ pub async fn start(addr: &str) -> Result<()> {
 }
 
 /// Handle a new connection including handshake
+#[instrument(skip(stream, dispatcher, active_connections), fields(peer = %peer))]
 async fn handle_connection(
     stream: tokio::net::TcpStream,
     peer: std::net::SocketAddr,
@@ -115,7 +118,7 @@ async fn handle_connection(
     
     // If there was an error, log it
     if let Err(e) = result {
-        eprintln!("[daemon] Connection error for {peer}: {e}");
+        error!(error = %e, "Connection error");
     }
     
     // Always decrement active connections on exit
@@ -124,10 +127,11 @@ async fn handle_connection(
         *count -= 1;
     }
     
-    println!("[daemon] disconnected: {peer}");
+    info!("Client disconnected");
 }
 
 /// Process a connection with proper error handling
+#[instrument(skip(stream, dispatcher), fields(peer = %peer))]
 async fn process_connection(
     stream: tokio::net::TcpStream,
     peer: std::net::SocketAddr,
@@ -189,6 +193,7 @@ async fn process_connection(
 }
 
 /// Handle a secure connection after handshake
+#[instrument(skip(conn, dispatcher), fields(peer = %peer))]
 async fn handle_secure_connection(
     mut conn: SecureConnection,
     dispatcher: Arc<Dispatcher>,
@@ -198,11 +203,11 @@ async fn handle_secure_connection(
     loop {
         let msg: Message = conn.secure_recv().await?;
         
-        println!("[daemon] received from {peer}: {msg:?}");
+        debug!(message = ?msg, "Received message");
         
         // Check for disconnect message
         if matches!(msg, Message::Disconnect) {
-            println!("[daemon] received disconnect request from {peer}");
+            info!("Received disconnect request");
             break;
         }
 

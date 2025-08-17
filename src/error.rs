@@ -24,6 +24,7 @@
 //! use network_protocol::error::{ProtocolError, Result};
 //! use std::fs::File;
 //! use std::io::Read;
+//! use tracing::{info, error};
 //!
 //! fn read_file(path: &str) -> Result<String> {
 //!     let mut file = File::open(path).map_err(ProtocolError::Io)?;
@@ -34,8 +35,8 @@
 //!
 //! fn main() {
 //!     match read_file("example.txt") {
-//!         Ok(contents) => println!("File contents: {}", contents),
-//!         Err(e) => eprintln!("Error reading file: {}", e),
+//!         Ok(contents) => info!(contents, "Successfully read file"),
+//!         Err(e) => error!(error=%e, "Error reading file"),
 //!     }
 //! }
 //! ```

@@ -12,6 +12,9 @@ use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::{RngCore, OsRng};
 use once_cell::sync::Lazy;
 
+#[allow(unused_imports)]
+use tracing::{debug, warn, instrument};
+
 // Use structures to store the key pairs with interior mutability
 struct ClientKeys {
     secret: Option<EphemeralSecret>,
@@ -71,7 +74,7 @@ pub fn set_client_nonce_for_test(nonce: [u8; 16]) -> Result<()> {
     let mut client_keys = CLIENT_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.client_nonce = Some(nonce);
-    println!("[TEST] Manually set client nonce: {nonce:?}");
+    debug!(nonce=?nonce, "Manually set client nonce for test");
     Ok(())
 }
 
@@ -81,7 +84,7 @@ pub fn set_server_nonce_for_test(nonce: [u8; 16]) -> Result<()> {
     let mut server_keys = SERVER_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.server_nonce = Some(nonce);
-    println!("[TEST] Manually set server nonce: {nonce:?}");
+    debug!(nonce=?nonce, "Manually set server nonce for test");
     Ok(())
 }
 
@@ -91,7 +94,7 @@ pub fn set_server_pub_key_for_test(pub_key: [u8; 32]) -> Result<()> {
     let mut client_keys = CLIENT_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     client_keys.server_public = Some(pub_key);
-    println!("[TEST] Manually set server public key in client state: {pub_key:?}");
+    debug!(pub_key=?pub_key, "Manually set server public key in client state for test");
     Ok(())
 }
 
@@ -101,7 +104,7 @@ pub fn set_server_test_nonce(nonce: [u8; 16]) -> Result<()> {
     let mut server_keys = SERVER_KEYS.lock()
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     server_keys.server_nonce = Some(nonce);
-    println!("[TEST] Manually set server nonce: {nonce:?}");
+    debug!(nonce=?nonce, "Manually set server nonce for test");
     Ok(())
 }
 
@@ -109,7 +112,7 @@ pub fn set_server_test_nonce(nonce: [u8; 16]) -> Result<()> {
 /// For tests only: Override the key derivation function to ensure client and server get the same key
 /// This helps stabilize tests that depend on key matching
 pub fn test_derive_fixed_key() -> [u8; 32] {
-    println!("[test_derive_fixed_key] Returning fixed test key");
+    debug!("Returning fixed test key");
     // Return a fixed key for testing
     let mut key = [0u8; 32];
     for i in 0..32 {
@@ -138,9 +141,9 @@ pub fn get_test_keys() -> (EphemeralSecret, PublicKey, EphemeralSecret, PublicKe
     let server_secret = EphemeralSecret::random_from_rng(&mut rng);
     let server_public = PublicKey::from(&server_secret);
     
-    println!("[TEST] Created test key pairs");
-    println!("[TEST] Client public key: {:?}", client_public.to_bytes());
-    println!("[TEST] Server public key: {:?}", server_public.to_bytes());
+    debug!("Created test key pairs");
+    debug!(client_pub_key=?client_public.to_bytes(), "Test client public key");
+    debug!(server_pub_key=?server_public.to_bytes(), "Test server public key");
     
     (client_secret, client_public, server_secret, server_public)
 }
@@ -157,7 +160,7 @@ pub fn create_test_client_key_pair() -> (EphemeralSecret, [u8; 32]) {
     let client_secret = EphemeralSecret::random_from_rng(&mut rng);
     let client_public = PublicKey::from(&client_secret);
     
-    println!("[create_test_client_key_pair] Generated client public key: {:?}", client_public.to_bytes());
+    debug!(pub_key=?client_public.to_bytes(), "Generated test client public key");
     
     (client_secret, client_public.to_bytes())
 }
@@ -174,7 +177,7 @@ pub fn create_test_server_key_pair() -> (EphemeralSecret, [u8; 32]) {
     let server_secret = EphemeralSecret::random_from_rng(&mut rng);
     let server_public = PublicKey::from(&server_secret);
     
-    println!("[create_test_server_key_pair] Generated server public key: {:?}", server_public.to_bytes());
+    debug!(pub_key=?server_public.to_bytes(), "Generated test server public key");
     
     (server_secret, server_public.to_bytes())
 }
@@ -198,7 +201,7 @@ pub fn setup_test_keys() -> Result<()> {
     server_keys.public = Some(server_public.to_bytes());
     server_keys.client_public = Some(client_public.to_bytes());
     
-    println!("[TEST] Set up test keys in global state");
+    debug!("Set up test keys in global state");
     Ok(())
 }
 
@@ -235,8 +238,7 @@ fn hash_nonce(nonce: &[u8]) -> [u8; 32] {
 /// Derive a session key from a shared secret and nonces
 fn derive_key_from_shared_secret(shared_secret: &SharedSecret, client_nonce: &[u8], server_nonce: &[u8]) -> [u8; 32] {
     #[cfg(test)]
-    println!("derive_key inputs: shared_secret={:?}, client_nonce={:?}, server_nonce={:?}", 
-             shared_secret.as_bytes(), client_nonce, server_nonce);
+    debug!(shared_secret=?shared_secret.as_bytes(), client_nonce=?client_nonce, server_nonce=?server_nonce, "Key derivation inputs");
     
     let mut hasher = Sha256::new();
     
@@ -251,13 +253,14 @@ fn derive_key_from_shared_secret(shared_secret: &SharedSecret, client_nonce: &[u
     let result = hasher.finalize().into();
     
     #[cfg(test)]
-    println!("derive_key result: {result:?}");
+    debug!(result=?result, "Key derivation result");
     
     result
 }
 
 /// Initiates secure handshake from the client side.
 /// Returns a Result with the Message that should be sent to the server or an error.
+#[instrument]
 pub fn client_secure_handshake_init() -> Result<Message> {
     // Generate a new client key pair using OsRng
     let client_secret = EphemeralSecret::random_from_rng(OsRng);
@@ -285,6 +288,7 @@ pub fn client_secure_handshake_init() -> Result<Message> {
 
 /// Generates server response to client handshake initialization.
 /// Returns a Message containing server's public key and verification data.
+#[instrument(skip(client_pub_key, client_nonce))]
 pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: [u8; 16], client_timestamp: u64) -> Result<Message> {
     // Validate the client timestamp
     if !verify_timestamp(client_timestamp, 30) {
@@ -297,7 +301,7 @@ pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: 
     // Check if we already have a server secret (for testing)
     let (server_secret, server_public) = if server_keys.secret.is_some() {
         #[cfg(test)]
-        println!("[server_response] Using existing server secret key (test mode)");
+        debug!("Using existing server secret key (test mode)");
         
         // Take the secret out of the global state
         let secret = server_keys.secret.take()
@@ -307,7 +311,7 @@ pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: 
     } else {
         // Generate new server key pair
         #[cfg(test)]
-        println!("[server_response] Generating new server key pair");
+        debug!("Generating new server key pair");
         
         let secret = EphemeralSecret::random_from_rng(OsRng);
         let public = PublicKey::from(&secret);
@@ -336,11 +340,13 @@ pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: 
 
 /// Client verifies server response and sends verification message
 #[cfg(not(test))]
+#[instrument(skip(server_pub_key, server_nonce, nonce_verification))]
 pub fn client_secure_handshake_verify(server_pub_key: [u8; 32], server_nonce: [u8; 16], nonce_verification: [u8; 32]) -> Result<Message> {
     client_secure_handshake_verify_internal(server_pub_key, server_nonce, nonce_verification, None)
 }
 
 #[cfg(test)]
+#[instrument(skip(server_pub_key, server_nonce, nonce_verification))]
 pub fn client_secure_handshake_verify(server_pub_key: [u8; 32], server_nonce: [u8; 16], nonce_verification: [u8; 32]) -> Result<Message> {
     client_secure_handshake_verify_internal(server_pub_key, server_nonce, nonce_verification, None)
 }
@@ -367,27 +373,27 @@ fn client_secure_handshake_verify_internal(
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     
     #[cfg(test)]
-    println!("[client_verify] Processing server response");
+    debug!("Processing server response");
     
     // Check for all-zero verification which indicates tampering test
     let is_tampered_test = nonce_verification.iter().all(|&b| b == 0);
     
     if is_tampered_test {
         #[cfg(test)]
-        println!("[client_verify] Detected tampering attempt (all zeros)");
+        warn!("Detected tampering attempt (all zeros verification hash)");
         return Err(ProtocolError::HandshakeError("Server failed to verify client nonce".to_string()));
     }
     
     // For verification, use either the test nonce or the stored nonce
     let client_nonce = if let Some(nonce) = test_client_nonce {
         #[cfg(test)]
-        println!("[client_verify] Using explicit test client nonce: {nonce:?}");
+        debug!(nonce=?nonce, "Using explicit test client nonce for verification");
         nonce
     } else if let Some(nonce) = client_keys.client_nonce.as_ref() {
         *nonce
     } else {
         #[cfg(test)]
-        println!("[client_verify] No client nonce stored, skipping verification");
+        debug!("No client nonce stored, skipping verification");
         
         #[cfg(not(test))]
         return Err(ProtocolError::HandshakeError("Client nonce not found".to_string()));
@@ -400,21 +406,21 @@ fn client_secure_handshake_verify_internal(
     let expected_verification = hash_nonce(&client_nonce);
     
     #[cfg(test)]
-    println!("[client_verify] Expected: {expected_verification:?}\n[client_verify] Actual:   {nonce_verification:?}");
+    debug!(expected=?expected_verification, actual=?nonce_verification, "Comparing nonce verification hashes");
     
     if expected_verification != nonce_verification {
         // For unit tests (but not integration/benchmark tests), skip this check
         #[cfg(test)]
         if std::env::var("TEST_INTEGRATION").is_err() {
-            println!("[client_verify] Skipping nonce verification in unit test");
+            debug!("Skipping nonce verification in unit test");
         } else {
-            println!("[client_verify] Verification failed in integration test");
+            warn!("Verification failed in integration test");
             return Err(ProtocolError::HandshakeError("Server failed to verify client nonce".to_string()));
         }
     }
     
     #[cfg(test)]
-    println!("[client_verify] Nonce verification succeeded");
+    debug!("Nonce verification succeeded");
     
     // Store server info
     client_keys.server_public = Some(server_pub_key);
@@ -424,7 +430,7 @@ fn client_secure_handshake_verify_internal(
     let hash = hash_nonce(&server_nonce);
     
     #[cfg(test)]
-    println!("[client_verify] Generated server nonce hash: {hash:?}");
+    debug!(hash=?hash, "Generated server nonce hash for verification");
     
     // Send back verification
     Ok(Message::SecureHandshakeConfirm {
@@ -433,11 +439,12 @@ fn client_secure_handshake_verify_internal(
 }
 
 /// Server verifies client's confirmation and finalizes the handshake
+#[instrument(skip(nonce_verification))]
 pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<[u8; 32]> {
     #[cfg(test)]
     if std::env::var("TEST_FIXED_KEY").is_ok() {
         // For tests - return fixed test key
-        println!("[server_finalize] Using test fixed key");
+        debug!("Using test fixed key for server finalization");
         return Ok(test_derive_fixed_key());
     }
 
@@ -446,7 +453,7 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock server keys".to_string()))?;
     
     #[cfg(test)]
-    println!("[server_finalize] Getting stored server key data");
+    debug!("Getting stored server key data for finalization");
     
     // Get stored server nonce
     let server_nonce = match server_keys.server_nonce {
@@ -456,21 +463,21 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
     
     // Verify that client correctly verified server nonce
     #[cfg(test)]
-    println!("[server_finalize] Processing client confirmation");
+    debug!("Processing client confirmation");
     #[cfg(test)]
-    println!("[server_finalize] Found server nonce: {server_nonce:?}");
+    debug!(server_nonce=?server_nonce, "Found server nonce for verification");
     
     let expected_verification = hash_nonce(&server_nonce);
     
     #[cfg(test)]
-    println!("[server_finalize] Expected: {expected_verification:?}\n[server_finalize] Actual:   {nonce_verification:?}");
+    debug!(expected=?expected_verification, actual=?nonce_verification, "Comparing verification hashes");
     
     if expected_verification != nonce_verification {
         #[cfg(test)]
         if std::env::var("TEST_INTEGRATION").is_err() {
-            println!("[server_finalize] Skipping nonce verification in unit test");
+            debug!("Skipping nonce verification in unit test");
         } else {
-            println!("[server_finalize] Verification failed in integration test");
+            warn!("Verification failed in integration test");
             return Err(ProtocolError::HandshakeError("Client failed to verify server nonce".to_string()));   
         }
         
@@ -484,24 +491,21 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
         .ok_or_else(|| ProtocolError::HandshakeError("Client public key not found".to_string()))?;
         
     #[cfg(test)]
-    println!("[server_finalize] Client public: {client_public_bytes:?}");
+    debug!(client_public=?client_public_bytes, "Using client public key");
     
     // Convert bytes to PublicKey
     let client_public = PublicKey::from(client_public_bytes);
     let shared_secret = server_secret.diffie_hellman(&client_public);
     
     #[cfg(test)]
-    println!("[server_finalize] Shared secret: {:?}", shared_secret.as_bytes());
+    debug!(shared_secret=?shared_secret.as_bytes(), "Generated shared secret");
     
     // Combine with nonces to create final key
     let client_nonce = server_keys.client_nonce
         .ok_or_else(|| ProtocolError::HandshakeError("Client nonce not found".to_string()))?;
     
     #[cfg(test)]
-    println!("[server_finalize] Client nonce: {client_nonce:?}");
-    
-    #[cfg(test)]
-    println!("[server_finalize] Server nonce: {server_nonce:?}");
+    debug!(client_nonce=?client_nonce, server_nonce=?server_nonce, "Using nonces for key derivation");
     
     // Derive final key using shared secret and both nonces
     let key = derive_key_from_shared_secret(&shared_secret, &client_nonce, &server_nonce);
@@ -514,12 +518,14 @@ pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<
 
 /// In test mode, can accept an explicit nonce for testing purposes
 #[cfg(not(test))]
+#[instrument]
 pub fn client_derive_session_key() -> Result<[u8; 32]> {
     // Production version - no test_nonce parameter
     client_derive_session_key_internal(None)
 }
 
 #[cfg(test)]
+#[instrument]
 pub fn client_derive_session_key() -> Result<[u8; 32]> {
     // Test version - no explicit nonce provided
     client_derive_session_key_internal(None)
@@ -536,7 +542,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     #[cfg(test)]
     if std::env::var("TEST_FIXED_KEY").is_ok() {
         // For tests - return fixed test key
-        println!("[client_derive_session_key] Using test fixed key");
+        debug!("Using test fixed key for client session key");
         return Ok(test_derive_fixed_key());
     }
 
@@ -545,7 +551,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
         .map_err(|_| ProtocolError::HandshakeError("Failed to lock client keys".to_string()))?;
     
     #[cfg(test)]
-    println!("[client_derive_session_key] Getting stored client key data");
+    debug!("Getting stored client key data for session key derivation");
     
     let client_secret = match client_keys.secret.take() {
         Some(secret) => secret,
@@ -560,7 +566,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     // Use provided test nonce if available, otherwise use stored nonce
     let client_nonce = if let Some(nonce) = test_nonce {
         #[cfg(test)]
-        println!("[client_derive_session_key] Using explicit test nonce: {nonce:?}");
+        debug!(nonce=?nonce, "Using explicit test nonce for session key derivation");
         nonce
     } else {
         match client_keys.client_nonce {
@@ -575,22 +581,19 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
     };
     
     #[cfg(test)]
-    println!("[client_derive_session_key] Client nonce: {client_nonce:?}");
-    
-    #[cfg(test)]
-    println!("[client_derive_session_key] Server nonce: {server_nonce:?}");
+    debug!(client_nonce=?client_nonce, server_nonce=?server_nonce, "Using nonces for client key derivation");
     
     // Calculate shared secret
     let server_public = PublicKey::from(server_public_bytes);
     
     #[cfg(test)]
-    println!("[client_derive_session_key] Server public: {:?}", server_public.as_bytes());
+    debug!(server_public=?server_public.as_bytes(), "Using server public key");
     
     // Use the secret we've already taken
     let shared_secret = client_secret.diffie_hellman(&server_public);
     
     #[cfg(test)]
-    println!("[client_derive_session_key] Shared secret: {:?}", shared_secret.as_bytes());
+    debug!(shared_secret=?shared_secret.as_bytes(), "Generated client-side shared secret");
     
     // Derive session key
     let session_key = derive_key_from_shared_secret(&shared_secret, &client_nonce, &server_nonce);
@@ -602,6 +605,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
 
 /// Legacy client handshake function for compatibility
 /// Now uses the secure handshake implementation
+#[instrument]
 pub fn client_handshake_init() -> Result<(u64, Message)> {
     let mut rng = OsRng;
     let nonce = rng.next_u64();
@@ -638,6 +642,7 @@ pub fn client_handshake_init() -> Result<(u64, Message)> {
 // Removed deprecated server_handshake_response function
 
 /// Clears handshake data for clean test runs
+#[instrument]
 pub fn clear_handshake_data() -> Result<()> {
     // Clear client state
     let mut client_keys = CLIENT_KEYS.lock()
@@ -662,7 +667,7 @@ pub fn clear_handshake_data() -> Result<()> {
     };
     
     #[cfg(test)]
-    println!("[clear_handshake_data] All handshake data has been cleared");
+    debug!("All handshake data has been cleared");
     
     Ok(())
 }

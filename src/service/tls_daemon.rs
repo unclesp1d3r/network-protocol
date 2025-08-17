@@ -5,6 +5,7 @@ use futures::{StreamExt, SinkExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+use tracing::{debug, info, warn, error, instrument};
 
 use crate::core::codec::PacketCodec;
 use crate::core::packet::Packet;
@@ -15,6 +16,7 @@ use crate::transport::tls::TlsServerConfig;
 use crate::error::Result;
 
 /// Start a secure TLS server and listen for connections
+#[instrument(skip(tls_config))]  
 pub async fn start(addr: &str, tls_config: TlsServerConfig) -> Result<()> {
     // Create shutdown channel
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
@@ -24,12 +26,13 @@ pub async fn start(addr: &str, tls_config: TlsServerConfig) -> Result<()> {
 }
 
 /// Start a secure TLS server with an external shutdown channel
+#[instrument(skip(tls_config, shutdown_rx))]  
 pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     let config = tls_config.load_server_config()?;
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
     
     let listener = TcpListener::bind(addr).await?;
-    println!("[tls_daemon] listening on {addr}");
+    info!(address=%addr, "TLS daemon listening");
 
     // 🔁 Shared dispatcher
     let dispatcher = Arc::new({
@@ -45,7 +48,7 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
     // Spawn ctrl-c handler to forward to the provided shutdown channel
     tokio::spawn(async move {
         if let Ok(()) = tokio::signal::ctrl_c().await {
-            println!("[tls_daemon] Received shutdown signal, initiating graceful shutdown");
+            info!("Received shutdown signal, initiating graceful shutdown");
         }
     });
     
@@ -54,7 +57,7 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
         tokio::select! {
             // Check for shutdown signal
             _ = shutdown_rx.recv() => {     
-                println!("[tls_daemon] Shutting down server. Waiting for connections to close...");
+                info!("Shutting down server. Waiting for connections to close...");
                 
                 // Wait for active connections to close (with timeout)
                 let timeout = tokio::time::sleep(Duration::from_secs(10));
@@ -63,14 +66,14 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
                 loop {
                     tokio::select! {
                         _ = &mut timeout => {
-                            println!("[tls_daemon] Shutdown timeout reached, forcing exit");
+                            warn!("Shutdown timeout reached, forcing exit");
                             break;
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[tls_daemon] Waiting for {connections} connection(s) to close");
+                            debug!(connections, "Waiting for connections to close");
                             if connections == 0 {
-                                println!("[tls_daemon] All connections closed, shutting down");
+                                info!("All connections closed, shutting down");
                                 break;
                             }
                         }
@@ -84,7 +87,7 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
             accept_result = listener.accept() => {
                 match accept_result {
                     Ok((stream, peer)) => {
-                        println!("[tls_daemon] connection from {peer}");
+                        info!(%peer, "New connection accepted");
                         let dispatcher = dispatcher.clone();
                         let acceptor = acceptor.clone();
                         let active_connections = active_connections.clone();
@@ -99,11 +102,11 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
                             match acceptor.accept(stream).await {
                                 Ok(tls_stream) => {
                                     if let Err(e) = handle_tls_connection(tls_stream, dispatcher, peer, active_connections).await {
-                                        eprintln!("[tls_daemon] connection error: {e}");
+                                        error!(%peer, error=%e, "Connection error");
                                     }
                                 },
                                 Err(e) => {
-                                    eprintln!("[tls_daemon] TLS handshake failed: {e}");
+                                    error!(%peer, error=%e, "TLS handshake failed");
                                     // Decrement connections on handshake failure
                                     let mut count = active_connections.lock().await;
                                     *count -= 1;
@@ -112,7 +115,7 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
                         });
                     }
                     Err(e) => {
-                        eprintln!("[tls_daemon] Error accepting connection: {e}");
+                        error!(error=%e, "Error accepting connection");
                     }
                 }
             }
@@ -121,6 +124,7 @@ pub async fn start_with_shutdown(addr: &str, tls_config: TlsServerConfig, mut sh
 }
 
 /// Handle a TLS connection
+#[instrument(skip(tls_stream, dispatcher, active_connections), fields(peer=%peer))]
 async fn handle_tls_connection(
     tls_stream: TlsStream<TcpStream>,
     dispatcher: Arc<Dispatcher>,
@@ -129,7 +133,7 @@ async fn handle_tls_connection(
 ) -> Result<()> {
     let mut framed = Framed::new(tls_stream, PacketCodec);
     
-    println!("[tls_daemon] TLS connected: {peer}");
+    info!("TLS connection established");
     
     // Unlike regular daemon, we don't need a separate handshake
     // TLS already provides the encryption layer
@@ -139,7 +143,7 @@ async fn handle_tls_connection(
         let packet = match framed.next().await {
             Some(Ok(pkt)) => pkt,
             Some(Err(e)) => {
-                eprintln!("[tls_daemon] protocol error: {e}");
+                error!(error=%e, "Protocol error");
                 break;
             },
             None => break,
@@ -149,12 +153,12 @@ async fn handle_tls_connection(
         let msg = match bincode::deserialize::<Message>(&packet.payload) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("[tls_daemon] deserialization error: {e}");
+                error!(error=%e, "Deserialization error");
                 continue;
             }
         };
         
-        println!("[tls_daemon] received from {peer}: {msg:?}");
+        debug!(message=?msg, "Received message");
         
         // Process with dispatcher
         match dispatcher.dispatch(&msg) {
@@ -162,7 +166,7 @@ async fn handle_tls_connection(
                 let reply_bytes = match bincode::serialize(&reply) {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        eprintln!("[tls_daemon] serialization error: {e}");
+                        error!(error=%e, "Serialization error");
                         continue;
                     }
                 };
@@ -173,18 +177,18 @@ async fn handle_tls_connection(
                 };
                 
                 if let Err(e) = framed.send(reply_packet).await {
-                    eprintln!("[tls_daemon] send error: {e}");
+                    error!(error=%e, "Send error");
                     break;
                 }
             },
             Err(e) => {
-                eprintln!("[tls_daemon] dispatch error: {e}");
+                error!(error=%e, "Dispatch error");
                 break;
             }
         }
     }
     
-    println!("[tls_daemon] disconnected: {peer}");
+    info!("Connection closed");
     
     // Decrement connection counter on disconnect
     {

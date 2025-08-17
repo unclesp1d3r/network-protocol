@@ -34,3 +34,28 @@ pub use config::*;
 pub use error::*;
 pub use core::packet::Packet;
 pub use core::codec::PacketCodec;
+
+/// Initialize the library with default logging configuration.
+/// This should be called early in your application setup.
+pub fn init() {
+    utils::logging::setup_default_logging();
+}
+
+/// Initialize the library with custom logging configuration.
+/// 
+/// # Example
+/// ```
+/// use network_protocol::{init_with_config, utils::logging::LogConfig};
+/// use tracing::Level;
+/// 
+/// let config = LogConfig {
+///    app_name: "my-application".to_string(),
+///    log_level: Level::DEBUG,
+///    ..Default::default()
+/// };
+/// 
+/// init_with_config(&config);
+/// ```
+pub fn init_with_config(log_config: &utils::logging::LogConfig) {
+    utils::logging::init_logging(log_config);
+}

@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+use tracing::{info, warn, error, debug, instrument};
 
 use crate::core::codec::PacketCodec;
 use crate::error::Result;
@@ -20,6 +21,7 @@ use std::net::SocketAddr;
 /// On Unix systems, this uses Unix Domain Sockets
 /// On Windows, this falls back to TCP localhost connections
 #[cfg(unix)]
+#[instrument(skip(path), fields(socket_path = %path.as_ref().display()))]
 pub async fn start_server<P: AsRef<Path>>(path: P) -> Result<()> {
     // Create internal shutdown channel
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
@@ -28,7 +30,7 @@ pub async fn start_server<P: AsRef<Path>>(path: P) -> Result<()> {
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         if let Ok(()) = tokio::signal::ctrl_c().await {
-            println!("[local] Received CTRL+C signal, shutting down");
+            info!("Received CTRL+C signal, shutting down");
             let _ = shutdown_tx_clone.send(()).await;
         }
     });
@@ -39,6 +41,7 @@ pub async fn start_server<P: AsRef<Path>>(path: P) -> Result<()> {
 
 /// Start a Unix domain socket server with an external shutdown channel
 #[cfg(unix)]
+#[instrument(skip(path, shutdown_rx), fields(socket_path = %path.as_ref().display()))]
 pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     if path.as_ref().exists() {
         tokio::fs::remove_file(&path).await.ok();
@@ -48,7 +51,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
     let path_string = path.as_ref().to_string_lossy().to_string();
     
     let listener = UnixListener::bind(&path)?;
-    println!("[local] listening on unix socket at {path_string}");
+    info!(path = %path_string, "Listening on unix socket");
     
     // Track active connections
     let active_connections = Arc::new(Mutex::new(0u32));
@@ -58,7 +61,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
         tokio::select! {
             // Check for shutdown signal from the provided shutdown_rx channel
             _ = shutdown_rx.recv() => {
-                println!("[local] Shutting down server. Waiting for connections to close...");
+                info!("Shutting down server. Waiting for connections to close...");
                 
                 // Wait for active connections to close (with timeout)
                 let timeout = tokio::time::sleep(Duration::from_secs(10));
@@ -67,14 +70,14 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                 loop {
                     tokio::select! {
                         _ = &mut timeout => {
-                            println!("[local] Shutdown timeout reached, forcing exit");
+                            warn!("Shutdown timeout reached, forcing exit");
                             break;
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[local] Waiting for {connections} connection(s) to close");
+                            info!(connections = %connections, "Waiting for connections to close");
                             if connections == 0 {
-                                println!("[local] All connections closed, shutting down");
+                                info!("All connections closed, shutting down");
                                 break;
                             }
                         }
@@ -84,9 +87,9 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                 // Clean up socket file
                 if Path::new(&path_string).exists() {
                     if let Err(e) = tokio::fs::remove_file(&path_string).await {
-                        eprintln!("[local] Failed to remove socket file: {e}");
+                        error!(error = %e, path = %path_string, "Failed to remove socket file");
                     } else {
-                        println!("[local] Removed socket file: {path_string}");
+                        info!(path = %path_string, "Removed socket file");
                     }
                 }
                 
@@ -109,7 +112,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                             let mut framed = Framed::new(stream, PacketCodec);
                             
                             while let Some(Ok(packet)) = framed.next().await {
-                                println!("[local] recv: {} bytes", packet.payload.len());
+                                debug!("Received packet of {} bytes", packet.payload.len());
                                 
                                 // Echo it back
                                 let _ = framed.send(packet).await;
@@ -121,7 +124,7 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
                         });
                     }
                     Err(e) => {
-                        eprintln!("[local] Error accepting connection: {e}");
+                        error!(error = %e, "Error accepting connection");
                     }
                 }
             }
@@ -131,13 +134,14 @@ pub async fn start_server_with_shutdown<P: AsRef<Path>>(path: P, mut shutdown_rx
 
 /// Windows implementation using TCP on localhost instead of Unix sockets
 #[cfg(windows)]
+#[instrument(skip(path))]
 pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
     // On Windows, interpret the path as a port number on localhost
     // Extract just the port number or use a default
     let addr = format!("127.0.0.1:{}", extract_port_or_default(path.as_ref()));
     
     let listener = TcpListener::bind(&addr).await?;
-    println!("[local] listening on {addr} (Windows compatibility mode)");
+    info!(address = %addr, "Listening (Windows compatibility mode)");
     
     // Track active connections
     let active_connections = Arc::new(Mutex::new(0u32));
@@ -149,7 +153,7 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         if let Ok(()) = tokio::signal::ctrl_c().await {
-            println!("[local] Received shutdown signal, initiating graceful shutdown");
+            info!("Received shutdown signal, initiating graceful shutdown");
             let _ = shutdown_tx_clone.send(()).await;
         }
     });
@@ -159,7 +163,7 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
         tokio::select! {
             // Check for shutdown signal
             _ = shutdown_rx.recv() => {
-                println!("[local] Shutting down server. Waiting for connections to close...");
+                info!("Shutting down server. Waiting for connections to close...");
                 
                 // Wait for active connections to close (with timeout)
                 let timeout = tokio::time::sleep(Duration::from_secs(10));
@@ -168,14 +172,14 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
                 loop {
                     tokio::select! {
                         _ = &mut timeout => {
-                            println!("[local] Shutdown timeout reached, forcing exit");
+                            warn!("Shutdown timeout reached, forcing exit");
                             break;
                         }
                         _ = tokio::time::sleep(Duration::from_millis(500)) => {
                             let connections = *active_connections.lock().await;
-                            println!("[local] Waiting for {} connection(s) to close", connections);
+                            info!(connections = %connections, "Waiting for connections to close");
                             if connections == 0 {
-                                println!("[local] All connections closed, shutting down");
+                                info!("All connections closed, shutting down");
                                 break;
                             }
                         }
@@ -189,7 +193,7 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
             accept_result = listener.accept() => {
                 match accept_result {
                     Ok((stream, addr)) => {
-                        println!("[local] connection from {addr}");
+                        info!(peer = %addr, "New connection established");
                         let active_connections = active_connections.clone();
                         
                         // Increment active connections counter
@@ -202,7 +206,7 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
                             let mut framed = Framed::new(stream, PacketCodec);
                             
                             while let Some(Ok(packet)) = framed.next().await {
-                                println!("[local] recv: {} bytes", packet.payload.len());
+                                debug!(bytes = packet.payload.len(), "Packet received");
                                 
                                 // Echo it back
                                 let _ = framed.send(packet).await;
@@ -211,11 +215,11 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
                             // Decrement connection counter when connection closes
                             let mut count = active_connections.lock().await;
                             *count -= 1;
-                            println!("[local] connection closed from {addr}");
+                            info!(peer = %addr, "Connection closed");
                         });
                     }
                     Err(e) => {
-                        eprintln!("[local] Error accepting connection: {}", e);
+                        error!(error = %e, "Error accepting connection");
                     }
                 }
             }
@@ -228,12 +232,14 @@ pub async fn start_server<S: AsRef<str>>(path: S) -> Result<()> {
 /// On Unix systems, this uses Unix Domain Sockets
 /// On Windows, this falls back to TCP localhost connections
 #[cfg(unix)]
+#[instrument(skip(path), fields(socket_path = %path.as_ref().display()))]
 pub async fn connect<P: AsRef<Path>>(path: P) -> Result<Framed<UnixStream, PacketCodec>> {
     let stream = UnixStream::connect(path).await?;
     Ok(Framed::new(stream, PacketCodec))
 }
 
 #[cfg(windows)]
+#[instrument(skip(path))]
 pub async fn connect<S: AsRef<str>>(path: S) -> Result<Framed<TcpStream, PacketCodec>> {
     // On Windows, interpret the path as a port number on localhost
     let addr = format!("127.0.0.1:{}", extract_port_or_default(path.as_ref()));

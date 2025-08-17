@@ -41,7 +41,10 @@ tokio = { version = "1.38", features = ["net", "io-util", "macros", "rt-multi-th
 futures = "0.3"
 
 chacha20poly1305 = { version = "0.10", features = ["std"] }
-tracing = "0.1"
+tracing = { version = "0.1", features = ["attributes"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-appender = "0.2"
+tracing-futures = "0.2"
 
 getrandom = "0.3.3"
 rand = "0.9"

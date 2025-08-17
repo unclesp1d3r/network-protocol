@@ -8,12 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Integrated structured logging with `tracing` crate throughout the codebase
+- Added `#[tracing::instrument]` attributes to key async functions for enhanced contextual logging
+- Created logging configuration module with flexible log level control via environment variables
+- Implemented concurrent-safe logging infrastructure for better debugging and observability
 
 ### Changed
+- Replaced all `println!` and `eprintln!` calls with appropriate structured logging macros (`debug!`, `info!`, `warn!`, `error!`)
+- Enhanced logging detail with structured fields for better filtering and analysis
+- Improved error logging with contextual information across all modules
+- Updated documentation examples to use structured logging
 
 ### Fixed
-
-### Removed
 - Removed deprecated legacy handshake functions (`derive_shared_key`, `verify_server_ack`, `server_handshake_response`)
 - Removed deprecated message types (`HandshakeInit`, `HandshakeAck`)
 - Removed references to deprecated code from dispatcher, client, and daemon

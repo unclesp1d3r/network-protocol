@@ -6,6 +6,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use std::time::Duration;
     use sha2::{Sha256, Digest};
+    use tracing::debug;
 
     // Helper functions for tests since the internal functions are not public
     fn test_current_timestamp() -> u64 {
@@ -100,11 +101,11 @@ mod tests {
         // This helps avoid race conditions when multiple tests run concurrently
         let _ = set_client_nonce_for_test(client_nonce);
         
-        println!("[TEST] Client nonce from message: {client_nonce:?}");
+        debug!(client_nonce=?client_nonce, "Client nonce from message");
         
         // Hash client nonce for verification check
         let client_nonce_hash = test_hash_nonce(&client_nonce);
-        println!("[TEST] Client nonce hash: {client_nonce_hash:?}");
+        debug!(hash=?client_nonce_hash, "Client nonce hash for verification");
         
         // =================== Step 2: Server responds ===================
         // Server creates response message
@@ -118,8 +119,8 @@ mod tests {
             _ => panic!("Expected SecureHandshakeResponse message"),
         };
         
-        println!("[TEST] Server nonce from response: {server_nonce:?}");
-        println!("[TEST] Server public key: {server_pub_key:?}");
+        debug!(server_nonce=?server_nonce, "Server nonce from response");
+        debug!(server_pub_key=?server_pub_key, "Server public key from response");
         
         // Make sure the server uses the same nonce throughout the handshake
         let _ = set_server_nonce_for_test(server_nonce);
@@ -159,8 +160,8 @@ mod tests {
         let client_key = client_derive_session_key_with_test_nonce(client_nonce)
             .expect("Client should be able to derive session key");
             
-        println!("Server key: {server_key:?}");
-        println!("Client key: {client_key:?}");
+        debug!(server_key=?server_key, "Derived server session key");
+        debug!(client_key=?client_key, "Derived client session key");
             
         // Keys should match (validates the Diffie-Hellman exchange worked)
         assert_eq!(server_key, client_key, "Client and server session keys don't match");

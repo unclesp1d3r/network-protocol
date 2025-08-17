@@ -31,47 +31,51 @@ use crate::error::Result;
 use futures::StreamExt;
 use futures::SinkExt;
 use std::net::SocketAddr;
+use tracing::{info, error, debug, instrument};
 
 /// Starts a TCP server at the given address
+#[instrument(skip(addr), fields(address = %addr))]
 pub async fn start_server(addr: &str) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
 
-    println!("[server] listening on {addr}");
+    info!(address = %addr, "Server listening");
 
     loop {
         let (stream, peer) = listener.accept().await?;
         tokio::spawn(async move {
             if let Err(e) = handle_connection(stream, peer).await {
-                eprintln!("[server] connection error: {e}");
+                error!(error = %e, peer = %peer, "Connection error");
             }
         });
     }
 }
 
 /// Handles a single client connection
+#[instrument(skip(stream), fields(peer = %peer))]
 async fn handle_connection(stream: TcpStream, peer: SocketAddr) -> Result<()> {
     let mut framed = Framed::new(stream, PacketCodec);
 
-    println!("[server] connected: {peer}");
+    info!("Client connected");
 
     while let Some(packet) = framed.next().await {
         match packet {
             Ok(pkt) => {
-                println!("[server] received {} bytes from {peer}...", pkt.payload.len());
+                debug!(bytes = pkt.payload.len(), "Packet received");
                 on_packet(pkt, &mut framed).await?;
             }
             Err(e) => {
-                eprintln!("[server] protocol error from {peer}: {e}");
+                error!(error = %e, "Protocol error");
                 break;
             }
         }
     }
 
-    println!("[server] disconnected: {peer}");
+    info!("Client disconnected");
     Ok(())
 }
 
 /// Placeholder: handles incoming packets
+#[instrument(skip(framed), fields(packet_version = pkt.version, payload_size = pkt.payload.len()))]
 async fn on_packet(pkt: Packet, framed: &mut Framed<TcpStream, PacketCodec>) -> Result<()> {
     // Echo the packet back
     let response = Packet {
@@ -84,6 +88,7 @@ async fn on_packet(pkt: Packet, framed: &mut Framed<TcpStream, PacketCodec>) -> 
 }
 
 /// Connect to a remote server and return the framed transport
+#[instrument(skip(addr), fields(address = %addr))]
 pub async fn connect(addr: &str) -> Result<Framed<TcpStream, PacketCodec>> {
     let stream = TcpStream::connect(addr).await?;
     let framed = Framed::new(stream, PacketCodec);

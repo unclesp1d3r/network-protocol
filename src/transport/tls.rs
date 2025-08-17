@@ -29,6 +29,7 @@ use tokio_rustls::server::TlsStream as ServerTlsStream;
 use tokio_rustls::client::TlsStream as ClientTlsStream;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls::ServerName;
+use tracing::{debug, info, error, instrument};
 
 use crate::core::codec::PacketCodec;
 use crate::core::packet::Packet;
@@ -494,12 +495,13 @@ impl TlsClientConfig {
 }
 
 /// Start a TLS server on the given address
+#[instrument(skip(config))]
 pub async fn start_server(addr: &str, config: TlsServerConfig) -> Result<()> {
     let tls_config = config.load_server_config()?;
     let acceptor = TlsAcceptor::from(Arc::new(tls_config));
     let listener = TcpListener::bind(addr).await?;
     
-    println!("[tls_server] listening on {addr}");
+    info!(address=%addr, "TLS server listening");
     
     loop {
         let (stream, peer) = listener.accept().await?;
@@ -509,11 +511,11 @@ pub async fn start_server(addr: &str, config: TlsServerConfig) -> Result<()> {
             match acceptor.accept(stream).await {
                 Ok(tls_stream) => {
                     if let Err(e) = handle_tls_connection(tls_stream, peer).await {
-                        eprintln!("[tls_server] connection error: {e}");
+                        error!(%peer, error=%e, "Connection error");
                     }
                 },
                 Err(e) => {
-                    eprintln!("[tls_server] TLS handshake failed: {e}");
+                    error!(%peer, error=%e, "TLS handshake failed");
                 }
             }
         });
@@ -521,29 +523,31 @@ pub async fn start_server(addr: &str, config: TlsServerConfig) -> Result<()> {
 }
 
 /// Handle a TLS connection
+#[instrument(skip(tls_stream), fields(peer=%peer))]
 async fn handle_tls_connection(tls_stream: ServerTlsStream<TcpStream>, peer: SocketAddr) -> Result<()> {
     let mut framed = Framed::new(tls_stream, PacketCodec);
     
-    println!("[tls_server] TLS connected: {peer}");
+    info!("TLS connection established");
     
     while let Some(packet) = framed.next().await {
         match packet {
             Ok(pkt) => {
-                println!("[tls_server] received {} bytes from {peer}...", pkt.payload.len());
+                debug!(bytes=pkt.payload.len(), "Received data");
                 on_packet(pkt, &mut framed).await?;
             }
             Err(e) => {
-                eprintln!("[tls_server] protocol error from {peer}: {e}");
+                error!(error=%e, "Protocol error");
                 break;
             }
         }
     }
     
-    println!("[tls_server] disconnected: {peer}");
+    info!("TLS connection closed");
     Ok(())
 }
 
 /// Handle incoming TLS packets
+#[instrument(skip(framed), fields(packet_version=pkt.version, payload_size=pkt.payload.len()))]
 async fn on_packet<T>(pkt: Packet, framed: &mut Framed<T, PacketCodec>) -> Result<()>
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -559,6 +563,7 @@ where
 }
 
 /// Connect to a TLS server
+#[instrument(skip(config), fields(address=%addr))]
 pub async fn connect(addr: &str, config: TlsClientConfig) -> Result<Framed<ClientTlsStream<TcpStream>, PacketCodec>> {
     let tls_config = Arc::new(config.load_client_config()?); 
     let connector = TlsConnector::from(tls_config);

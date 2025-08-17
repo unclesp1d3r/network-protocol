@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, interval};
+use tracing::{info, warn, debug, instrument};
 
 use crate::service::client::Client;
 use crate::protocol::message::Message;
@@ -33,6 +34,7 @@ impl Cluster {
         }
     }
 
+    #[instrument(skip(self), fields(interval_ms = %heartbeat_interval.as_millis()))]
     pub async fn start_heartbeat(&mut self, heartbeat_interval: Duration) -> mpsc::Sender<()> {
         // Create shutdown channel
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
@@ -51,7 +53,7 @@ impl Cluster {
                 select! {
                     // Check for shutdown signal
                     _ = shutdown_rx.recv() => {
-                        println!("[cluster] Received shutdown signal, stopping heartbeat");
+                        info!("Received shutdown signal, stopping heartbeat");
                         break;
                     }
                     
@@ -62,15 +64,15 @@ impl Cluster {
                                 Ok(mut client) => {
                                     match client.send_and_wait(Message::Ping).await {
                                         Ok(Message::Pong) => {
-                                            println!("[cluster] {id} alive");
+                                            debug!(node_id = %id, "Peer alive");
                                         }
                                         _ => {
-                                            println!("[cluster] {id} timeout");
+                                            warn!(node_id = %id, "Peer timeout");
                                         }
                                     }
                                 }
-                                Err(_) => {
-                                    println!("[cluster] {id} unreachable");
+                                Err(e) => {
+                                    warn!(node_id = %id, error = ?e, "Peer unreachable");
                                 }
                             }
                         }
@@ -78,7 +80,7 @@ impl Cluster {
                 }
             }
             
-            println!("[cluster] Heartbeat task shut down gracefully");
+            info!("Heartbeat task shut down gracefully");
         });
         
         // Return the shutdown sender so the caller can trigger shutdown
@@ -90,17 +92,18 @@ impl Cluster {
     }
     
     /// Gracefully shut down the cluster's heartbeat task
+    #[instrument(skip(self))]
     pub async fn shutdown(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             if tx.send(()).await.is_err() {
-                println!("[cluster] Heartbeat task already stopped");
+                info!("Heartbeat task already stopped");
             } else {
-                println!("[cluster] Shutdown signal sent to heartbeat task");
+                info!("Shutdown signal sent to heartbeat task");
                 // Give heartbeat task time to finish
                 sleep(Duration::from_millis(100)).await;
             }
         } else {
-            println!("[cluster] No active heartbeat to shut down");
+            info!("No active heartbeat to shut down");
         }
     }
 }
