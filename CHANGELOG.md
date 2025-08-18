@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Comprehensive benchmarking documentation in API.md
+- Performance metrics reference in README.md
+- Benchmark result interpretation guidelines
+
+### Changed
+- Improved benchmark tests with proper graceful shutdown
+- Enhanced error handling in performance tests
+- Added explicit server termination in benchmark tests
+
+### Fixed
+- Fixed "broken pipe" errors in benchmark tests with proper connection handling
+- Corrected throughput calculation in benchmarking
+- Added proper error documentation for expected benchmark behavior
+
 
 ## [0.9.6] - 2025-08-17
 
