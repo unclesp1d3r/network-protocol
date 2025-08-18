@@ -105,6 +105,9 @@ pub enum ProtocolError {
     #[error("Connection timed out (no activity)")]
     ConnectionTimeout,
 
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+    
     #[error("Custom error: {0}")]
     Custom(String),
 

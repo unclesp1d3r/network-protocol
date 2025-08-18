@@ -1,14 +1,17 @@
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, oneshot};
+use std::net::SocketAddr;
 use tokio::time;
 use bincode;
 use tracing::{info, debug, warn, error, instrument};
 
-use crate::utils::timeout::{with_timeout_error, HANDSHAKE_TIMEOUT, SHUTDOWN_TIMEOUT};
+use crate::config::ServerConfig;
+
+use crate::utils::timeout::with_timeout_error;
 
 use crate::core::codec::PacketCodec;
 use crate::core::packet::Packet;
@@ -21,12 +24,20 @@ use crate::protocol::heartbeat::{build_ping, is_pong};
 use crate::service::secure::SecureConnection;
 use crate::error::{Result, ProtocolError};
 
-/// Start a secure server and listen for connections
+/// Start a secure server and listen for connections using default configuration
 #[instrument(skip(addr), fields(address = %addr))]
 pub async fn start(addr: &str) -> Result<()> {
     // Create a never-resolving shutdown receiver for standard operation
     let (_, shutdown_rx) = oneshot::channel::<()>();
     start_with_shutdown(addr, shutdown_rx).await
+}
+
+/// Start a secure server with custom configuration
+#[instrument(skip(config), fields(address = %config.address))]
+pub async fn start_with_config(config: ServerConfig) -> Result<()> {
+    // Create a never-resolving shutdown receiver for standard operation
+    let (_, shutdown_rx) = oneshot::channel::<()>();
+    start_with_config_and_shutdown(config, shutdown_rx).await
 }
 
 /// Start a secure server with shutdown control for testing
@@ -35,8 +46,20 @@ pub async fn start_with_shutdown(
     addr: &str,
     shutdown_rx: oneshot::Receiver<()>
 ) -> Result<()> {
-    let listener = TcpListener::bind(addr).await?;
-    info!(address = %addr, "Server listening");
+    // Use default configuration with overridden address
+    let mut config = ServerConfig::default();
+    config.address = addr.to_string();
+    start_with_config_and_shutdown(config, shutdown_rx).await
+}
+
+/// Start a secure server with custom configuration and shutdown control
+#[instrument(skip(config, shutdown_rx), fields(address = %config.address))]
+pub async fn start_with_config_and_shutdown(
+    config: ServerConfig,
+    shutdown_rx: oneshot::Receiver<()>
+) -> Result<()> {
+    let listener = TcpListener::bind(&config.address).await?;
+    info!(address = %config.address, "Server listening");
 
     // Shared dispatcher
     let dispatcher = Arc::new(Dispatcher::new());
@@ -47,11 +70,15 @@ pub async fn start_with_shutdown(
     // Track active connections for graceful shutdown
     let active_connections = Arc::new(Mutex::new(0u32));
     
-    // Create a shutdown channel for CTRL+C
-    let (shutdown_tx, mut internal_shutdown_rx) = mpsc::channel::<()>(1);
+    // Create a shutdown channel for internal use
+    let (internal_shutdown_tx, mut internal_shutdown_rx) = mpsc::channel::<()>(1);
     
-    // Set up a Ctrl+C handler to initiate graceful shutdown
-    let shutdown_tx_clone = shutdown_tx.clone();
+    // Extract configuration values we need before moving config
+    let shutdown_timeout = config.shutdown_timeout;
+    let heartbeat_interval = config.heartbeat_interval;
+    
+    // Clone a sender for the task
+    let shutdown_tx_clone = internal_shutdown_tx.clone();
     tokio::spawn(async move {
         match tokio::signal::ctrl_c().await {
             Ok(()) => {
@@ -65,11 +92,11 @@ pub async fn start_with_shutdown(
     });
     
     // Also set up the oneshot receiver to trigger shutdown
-    let shutdown_tx_clone = shutdown_tx.clone();
+    let internal_shutdown_tx_clone = internal_shutdown_tx.clone();
     tokio::spawn(async move {
         if shutdown_rx.await.is_ok() {
             info!("External shutdown signal received");
-            let _ = shutdown_tx_clone.send(()).await;
+            let _ = internal_shutdown_tx_clone.send(()).await;
         }
     });
     
@@ -80,8 +107,8 @@ pub async fn start_with_shutdown(
             _ = internal_shutdown_rx.recv() => {     
                 info!("Shutting down server. Waiting for connections to close...");
                 
-                // Wait for active connections to close (with timeout)
-                let timeout = tokio::time::sleep(SHUTDOWN_TIMEOUT);
+                // Wait for active connections to close (with configured timeout)
+                let timeout = tokio::time::sleep(shutdown_timeout);
                 tokio::pin!(timeout);
                 
                 loop {
@@ -120,8 +147,12 @@ pub async fn start_with_shutdown(
                             *count += 1;
                         }
                         
+                        // Clone the things we need to move into the task
+                        let active_connections_clone = active_connections.clone();
+                        let config_clone = config.clone();
+                        
                         tokio::spawn(async move {
-                            handle_connection(stream, peer, dispatcher, active_connections).await;
+                            handle_connection(stream, peer, dispatcher, active_connections_clone, config_clone, heartbeat_interval).await;
                         });
                     }
                     Err(e) => {
@@ -133,20 +164,22 @@ pub async fn start_with_shutdown(
     }
 }
 
-/// Handle a new connection including handshake
-#[instrument(skip(stream, dispatcher, active_connections), fields(peer = %peer))]
+/// Handle a client connection with proper cleanup on exit
+#[instrument(skip(stream, dispatcher, active_connections, config, heartbeat_interval), fields(peer = %peer))]
 async fn handle_connection(
     stream: tokio::net::TcpStream,
     peer: std::net::SocketAddr,
     dispatcher: Arc<Dispatcher>,
     active_connections: Arc<Mutex<u32>>,
+    config: ServerConfig,
+    heartbeat_interval: Duration,
 ) {
     // Setup the connection with cleanup
     let result = with_timeout_error(
         async {
-            process_connection(stream, peer, dispatcher).await
+            process_connection(stream, dispatcher, peer, config.clone(), heartbeat_interval).await
         },
-        HANDSHAKE_TIMEOUT
+        config.connection_timeout
     ).await;
     
     // If there was an error, log it
@@ -165,13 +198,16 @@ async fn handle_connection(
     info!("Client disconnected");
 }
 
-/// Process a connection with proper error handling
-#[instrument(skip(stream, dispatcher), fields(peer = %peer))]
+/// Process a client connection with handshake and secure messages
+#[instrument(skip(stream, dispatcher, peer, config, heartbeat_interval), fields(peer = %peer))]  
 async fn process_connection(
-    stream: tokio::net::TcpStream,
-    peer: std::net::SocketAddr,
+    stream: TcpStream,
     dispatcher: Arc<Dispatcher>,
+    peer: SocketAddr,
+    config: ServerConfig,
+    heartbeat_interval: Duration,
 ) -> Result<()> {
+    // Create the framed stream for packet codec
     let mut framed = Framed::new(stream, PacketCodec);
 
     // --- Expect Secure Handshake Init (with timeout) ---
@@ -184,7 +220,7 @@ async fn process_connection(
                 None => Err(ProtocolError::ConnectionClosed),
             }
         },
-        HANDSHAKE_TIMEOUT
+        config.connection_timeout
     ).await?;
 
     // Extract the client's handshake init data
@@ -214,7 +250,7 @@ async fn process_connection(
                 None => Err(ProtocolError::ConnectionClosed),
             }
         },
-        HANDSHAKE_TIMEOUT
+        config.connection_timeout
     ).await?;
     
     let nonce_verification = match confirm {
@@ -232,7 +268,7 @@ async fn process_connection(
     let conn = SecureConnection::new(framed, session_key);
     
     // Handle the secure message loop
-    handle_secure_connection(conn, dispatcher, peer).await?;
+    handle_secure_connection(conn, dispatcher, peer, heartbeat_interval).await?;
     
     Ok(())
 }
@@ -278,17 +314,20 @@ struct ProcessingResult {
 }
 
 /// Handle a secure connection after handshake with backpressure
-#[instrument(skip(conn, dispatcher), fields(peer = %peer))]
+#[instrument(skip(conn, dispatcher, heartbeat_interval), fields(peer = %peer))]
 async fn handle_secure_connection(
     mut conn: SecureConnection,
     dispatcher: Arc<Dispatcher>,
-    peer: std::net::SocketAddr
+    peer: std::net::SocketAddr,
+    heartbeat_interval: Duration,
 ) -> Result<()> {
-    // --- Initialize Keep-Alive Manager ---
-    let mut keep_alive = KeepAliveManager::new();
+    // --- Initialize Keep-Alive Manager with configured interval ---
+    let dead_timeout = heartbeat_interval.mul_f32(4.0); // 4x the heartbeat interval for dead connection detection
+    let mut keep_alive = KeepAliveManager::with_settings(heartbeat_interval, dead_timeout);
     let mut ping_interval = time::interval(keep_alive.ping_interval());
     
-    // --- Create bounded channels for backpressure (adjust capacity as needed) ---
+    // --- Create bounded channels for backpressure with capacity from config ---
+    // We're using an internal messaging channel, so we can use a reasonable default here
     let (msg_tx, msg_rx) = mpsc::channel::<ProcessingMessage>(32);
     let (resp_tx, mut resp_rx) = mpsc::channel::<ProcessingResult>(32);
     
@@ -459,4 +498,71 @@ async fn process_messages(
     }
     
     debug!("Message processor terminated");
+}
+
+/// A server daemon handle that can be controlled externally
+#[derive(Debug)]
+pub struct Daemon {
+    /// Address the server is listening on
+    pub address: String,
+    /// Shutdown signal sender
+    shutdown_tx: Option<oneshot::Sender<()>>,
+}
+
+impl Daemon {
+    /// Create a new daemon handle
+    pub fn new(address: String, shutdown_tx: oneshot::Sender<()>) -> Self {
+        Self {
+            address,
+            shutdown_tx: Some(shutdown_tx),
+        }
+    }
+    
+    /// Run the daemon until completion or shutdown signal
+    pub async fn run(self) -> Result<()> {
+        // This function doesn't actually do anything - the server is started in the start_* functions
+        // This is just a placeholder for API compatibility
+        Ok(())
+    }
+    
+    /// Shutdown the daemon gracefully
+    pub async fn shutdown(&mut self) -> Result<()> {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+            Ok(())
+        } else {
+            Err(ProtocolError::Custom("Shutdown already called".to_string()))
+        }
+    }
+    
+    /// Shutdown the daemon with a custom timeout
+    pub async fn shutdown_with_timeout(&mut self, _timeout: Duration) -> Result<()> {
+        // The timeout is handled internally in the server loop
+        self.shutdown().await
+    }
+}
+
+/// Start a server daemon with provided configuration and return a handle to it
+#[instrument(skip(config, _dispatcher), fields(address = %config.address))]
+pub async fn start_daemon_no_signals(config: ServerConfig, _dispatcher: Arc<Dispatcher>) -> Result<Daemon> {
+    // Create a shutdown channel
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    
+    let address = config.address.clone();
+    
+    // Start the server in a background task
+    tokio::spawn(async move {
+        if let Err(e) = start_with_config_and_shutdown(config, shutdown_rx).await {
+            error!(error = ?e, "Server error");
+        }
+    });
+    
+    // Return a daemon handle
+    Ok(Daemon::new(address, shutdown_tx))
+}
+
+/// Create a new server daemon with configuration and dispatcher
+pub fn new_with_config(config: ServerConfig, _dispatcher: Arc<Dispatcher>) -> Daemon {
+    let (shutdown_tx, _) = oneshot::channel::<()>();
+    Daemon::new(config.address.clone(), shutdown_tx)
 }

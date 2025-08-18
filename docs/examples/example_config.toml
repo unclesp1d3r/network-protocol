@@ -1,0 +1,37 @@
+# Example configuration file for network-protocol
+
+# Server-specific configuration
+[server]
+address = "127.0.0.1:9000"
+backpressure_limit = 32
+connection_timeout = 5000    # milliseconds
+heartbeat_interval = 15000   # milliseconds
+shutdown_timeout = 10000     # milliseconds
+max_connections = 1000
+
+# Client-specific configuration
+[client]
+address = "127.0.0.1:9000"
+connection_timeout = 5000    # milliseconds
+operation_timeout = 3000     # milliseconds
+response_timeout = 30000     # milliseconds
+heartbeat_interval = 15000   # milliseconds
+auto_reconnect = true
+max_reconnect_attempts = 3
+reconnect_delay = 1000       # milliseconds
+
+# Transport configuration
+[transport]
+compression_enabled = false
+encryption_enabled = true
+max_payload_size = 16777216  # 16 MB in bytes
+compression_level = 6        # Medium compression (range 1-9)
+
+# Logging configuration
+[logging]
+app_name = "network-protocol"
+log_level = "info"           # options: trace, debug, info, warn, error
+log_to_console = true
+log_to_file = false
+log_file_path = ""           # leave empty for default log location
+json_format = false

@@ -2,6 +2,8 @@ use futures::{SinkExt, StreamExt};
 use tokio::time;
 use tracing::{debug, info, warn, instrument};
 
+use crate::config::ClientConfig;
+
 use crate::core::packet::Packet;
 use crate::protocol::message::Message;
 // Import secure handshake functions
@@ -11,24 +13,33 @@ use crate::protocol::keepalive::KeepAliveManager;
 use crate::service::secure::SecureConnection;
 use crate::transport::remote;
 use crate::error::{Result, ProtocolError};
-use crate::utils::timeout::{with_timeout_error, DEFAULT_TIMEOUT, HANDSHAKE_TIMEOUT};
+use crate::utils::timeout::with_timeout_error;
 
 /// High-level protocol client with post-handshake encryption
 pub struct Client {
     conn: SecureConnection,
     keep_alive: KeepAliveManager,
+    config: ClientConfig,
 }
 
 impl Client {
-    /// Connect and perform secure handshake with timeout
+    /// Connect and perform secure handshake with timeout using default configuration
     #[instrument(skip(addr), fields(address = %addr))]
     pub async fn connect(addr: &str) -> Result<Self> {
+        let mut config = ClientConfig::default();
+        config.address = addr.to_string();
+        Self::connect_with_config(config).await
+    }
+    
+    /// Connect and perform secure handshake with custom configuration
+    #[instrument(skip(config), fields(address = %config.address))]
+    pub async fn connect_with_config(config: ClientConfig) -> Result<Self> {
         // Connect with timeout
         let mut framed = with_timeout_error(
             async {
-                remote::connect(addr).await
+                remote::connect(&config.address).await
             },
-            DEFAULT_TIMEOUT
+            config.connection_timeout
         ).await?;
         
         // --- Legacy Handshake Support ---
@@ -56,7 +67,7 @@ impl Client {
                 bincode::deserialize::<Message>(&packet.payload)
                     .map_err(|e| ProtocolError::DeserializeError(e.to_string()))
             },
-            HANDSHAKE_TIMEOUT
+            config.connection_timeout
         ).await?;
         
         // Step 3: Verify server response and send confirmation
@@ -80,10 +91,13 @@ impl Client {
         // Step 4: Derive shared session key
         let key = client_derive_session_key()?;
         let conn = SecureConnection::new(framed, key);
-        let keep_alive = KeepAliveManager::new();
+        
+        // Create keep-alive manager with configured interval
+        let dead_timeout = config.heartbeat_interval.mul_f32(4.0); // 4x the heartbeat interval
+        let keep_alive = KeepAliveManager::with_settings(config.heartbeat_interval, dead_timeout);
         
         info!("Connection established successfully");
-        Ok(Self { conn, keep_alive })
+        Ok(Self { conn, keep_alive, config })
     }
 
     /// Securely send a message
@@ -114,7 +128,7 @@ impl Client {
         self.send(ping).await
     }
     
-    /// Wait for messages with keep-alive handling
+    /// Wait for messages with keep-alive handling using custom timeout
     #[instrument(skip(self))]
     pub async fn recv_with_keepalive(&mut self, timeout_duration: std::time::Duration) -> Result<Message> {
         let mut ping_interval = time::interval(self.keep_alive.ping_interval());
@@ -172,7 +186,7 @@ impl Client {
     #[instrument(skip(self, msg))]
     pub async fn send_and_wait(&mut self, msg: Message) -> Result<Message> {
         self.send(msg).await?;
-        // Use a reasonably long timeout for waiting for a response
-        self.recv_with_keepalive(std::time::Duration::from_secs(30)).await
+        // Use configured response timeout
+        self.recv_with_keepalive(self.config.response_timeout).await
     }
 }
