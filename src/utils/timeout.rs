@@ -18,6 +18,9 @@ pub const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 pub const DEAD_CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Wrap an async operation with a timeout
+///
+/// # Errors
+/// Returns `tokio::time::error::Elapsed` if the operation does not complete within the specified duration
 pub async fn with_timeout<T>(
     operation: impl std::future::Future<Output = T>,
     duration: Duration,
@@ -26,6 +29,9 @@ pub async fn with_timeout<T>(
 }
 
 /// Wrap an async operation with a timeout, converting Elapsed errors to ProtocolError::Timeout
+///
+/// # Errors
+/// Returns `ProtocolError::Timeout` if the operation times out, otherwise propagates any error from the operation
 pub async fn with_timeout_error<T>(
     operation: impl std::future::Future<Output = Result<T>>,
     duration: Duration,

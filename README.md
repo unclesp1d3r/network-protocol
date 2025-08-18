@@ -24,8 +24,8 @@
 ## Features
 
 ### Security
-- Secure handshake + post-handshake encryption using Elliptic Curve Diffie-Hellman (ECDH) key exchange
-- TLS transport with client/server implementations and mutual authentication (mTLS)
+- Secure handshake + post-handshake encryption using *Elliptic Curve Diffie-Hellman* (`ECDH`) key exchange
+- TLS transport with client/server implementations and mutual authentication (`mTLS`)
 - Certificate pinning for enhanced security in TLS connections
 - Self-signed certificate generation capability for development environments
 - Protection against replay attacks using timestamps and nonce verification
@@ -39,18 +39,26 @@
 - Client-side timeout handling with reconnection capabilities
 
 ### Core Architecture
-- Custom binary packet format with optional compression (LZ4, Zstd)
+- Custom binary packet format with optional compression (`LZ4`, `Zstd`)
 - Plugin-friendly dispatcher for message routing with zero-copy serialization
 - Graceful shutdown support for all server implementations with configurable timeouts
-- Modular transport: TCP, Unix socket, TLS, cluster sync
-- Comprehensive configuration system with TOML files and environment variable overrides
+- Modular transport: `TCP`, `Unix socket`, `TLS`, `cluster sync`
+- Comprehensive configuration system with `TOML` files and environment variable overrides
 - Structured logging with flexible log level control via configuration
 
 ### Compatibility
-- Cross-platform support for local transport (Windows, Linux, macOS)
+- Cross-platform support for local transport (**Windows**, **Linux**, **macOS**)
 - Windows-compatible alternative for Unix Domain Sockets
-- Ready for microservices, databases, daemons, and system protocols
+- Ready for *microservices*, *databases*, *daemons*, and *system protocols*
+
+<hr>
+<p align="center">
+    &mdash; Part of the <a href="https://github.com/jamesgober/rust-performance-library"><strong>Rust Performance Library</strong></a> collection. &mdash;
+</p>
+<hr>
 <br>
+
+
 
 ## Installation
 Add the library to your `Cargo.toml`:

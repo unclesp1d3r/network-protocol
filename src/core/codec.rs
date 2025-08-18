@@ -31,6 +31,12 @@ impl Decoder for PacketCodec {
     type Item = Packet;
     type Error = ProtocolError;
 
+    /// Decodes a packet from the byte stream
+    ///
+    /// Returns `None` if there aren't enough bytes to form a complete packet.
+    /// 
+    /// # Errors
+    /// Returns `ProtocolError::InvalidPacket` if the packet data is malformed
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Packet>> {
         if src.len() < HEADER_SIZE {
             return Ok(None);
@@ -51,6 +57,11 @@ impl Decoder for PacketCodec {
 impl Encoder<Packet> for PacketCodec {
     type Error = ProtocolError;
 
+    /// Encodes a packet into the byte stream
+    /// 
+    /// # Errors
+    /// This method should never fail under normal conditions, but may return protocol errors
+    /// if there are internal serialization issues
     fn encode(&mut self, packet: Packet, dst: &mut BytesMut) -> Result<()> {
         // Calculate total size and reserve space in the buffer
         let total_size = HEADER_SIZE + packet.payload.len();

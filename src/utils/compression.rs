@@ -1,11 +1,16 @@
 use crate::error::{Result, ProtocolError};
 
+#[derive(Copy, Clone)]
 pub enum CompressionKind {
     Lz4,
     Zstd,
 }
 
-pub fn compress(data: &[u8], kind: CompressionKind) -> Result<Vec<u8>> {
+/// Compresses data using the specified compression algorithm
+/// 
+/// # Errors
+/// Returns `ProtocolError::CompressionFailure` if compression fails
+pub fn compress(data: &[u8], kind: &CompressionKind) -> Result<Vec<u8>> {
     match kind {
         CompressionKind::Lz4 => Ok(lz4_flex::compress_prepend_size(data)),
         CompressionKind::Zstd => {
@@ -17,8 +22,12 @@ pub fn compress(data: &[u8], kind: CompressionKind) -> Result<Vec<u8>> {
     }
 }
 
-pub fn decompress(data: &[u8], kind: CompressionKind) -> Result<Vec<u8>> {
-    match kind {
+/// Decompresses data that was compressed with the specified algorithm
+/// 
+/// # Errors
+/// Returns `ProtocolError::DecompressionFailure` if decompression fails
+pub fn decompress(data: &[u8], kind: &CompressionKind) -> Result<Vec<u8>> {
+    match *kind {
         CompressionKind::Lz4 => lz4_flex::decompress_size_prepended(data)
             .map_err(|_| ProtocolError::DecompressionFailure),
         CompressionKind::Zstd => {

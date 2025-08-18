@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modified client connection code to support configuration-driven behavior
 - Refactored protocol constants into structured configuration objects
 - Improved error handling for configuration-related operations
+- Added Copy and Clone derives to CompressionKind enum for better ergonomics
+- Modified compression utilities to take references instead of values for better performance
+
+### Fixed
+- Fixed clippy warnings throughout the codebase for better code quality
+- Improved TLS shutdown test stability by increasing startup delay
+
+### Documentation
+- Enhanced error documentation across core modules:
+  - Added comprehensive error case documentation to compress/decompress functions
+  - Added detailed error documentation to timeout utility functions
+  - Improved codec documentation with better error case descriptions
+  - Enhanced handshake protocol documentation with security considerations
+- Updated API documentation with more usage examples
+- Clarified error handling patterns in public API functions
 
 
 ## [0.9.9] - 2025-08-17

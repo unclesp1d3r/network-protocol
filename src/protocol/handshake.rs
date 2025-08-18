@@ -54,6 +54,9 @@ static SERVER_KEYS: Lazy<Mutex<ServerKeys>> = Lazy::new(|| {
 });
 
 /// Get the current timestamp in milliseconds
+/// 
+/// # Errors
+/// Returns a `ProtocolError::Custom` if the system time is earlier than UNIX_EPOCH
 fn current_timestamp() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -259,7 +262,14 @@ fn derive_key_from_shared_secret(shared_secret: &SharedSecret, client_nonce: &[u
 }
 
 /// Initiates secure handshake from the client side.
-/// Returns a Result with the Message that should be sent to the server or an error.
+/// Generates a new key pair and nonce for the client.
+/// 
+/// # Returns
+/// A `Message::SecureHandshakeInit` containing the client's public key, timestamp, and nonce.
+/// 
+/// # Errors
+/// Returns `ProtocolError::HandshakeError` if client keys can't be locked
+/// Returns timestamp errors if system time is invalid
 #[instrument]
 pub fn client_secure_handshake_init() -> Result<Message> {
     // Generate a new client key pair using OsRng
@@ -287,7 +297,16 @@ pub fn client_secure_handshake_init() -> Result<Message> {
 }
 
 /// Generates server response to client handshake initialization.
-/// Returns a Message containing server's public key and verification data.
+/// Validates client timestamp, generates server key pair and nonce, and returns verification data.
+/// 
+/// # Returns
+/// A `Message::SecureHandshakeResponse` containing the server's public key, nonce, and nonce verification.
+/// 
+/// # Errors
+/// Returns `ProtocolError::HandshakeError` if:
+/// - Client timestamp is invalid or too old
+/// - Server keys can't be locked
+/// - Server secret is missing (when in test mode)
 #[instrument(skip(client_pub_key, client_nonce))]
 pub fn server_secure_handshake_response(client_pub_key: [u8; 32], client_nonce: [u8; 16], client_timestamp: u64) -> Result<Message> {
     // Validate the client timestamp
@@ -439,6 +458,15 @@ fn client_secure_handshake_verify_internal(
 }
 
 /// Server verifies client's confirmation and finalizes the handshake
+/// 
+/// # Returns
+/// The derived session key (32 bytes) if verification succeeds
+/// 
+/// # Errors
+/// Returns `ProtocolError::HandshakeError` if:
+/// - Server keys can't be locked
+/// - Server nonce, secret, or client data is missing
+/// - Client's verification hash doesn't match expected value
 #[instrument(skip(nonce_verification))]
 pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<[u8; 32]> {
     #[cfg(test)]
