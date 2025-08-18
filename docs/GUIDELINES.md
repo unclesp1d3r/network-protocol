@@ -37,3 +37,16 @@
 - **SOLID Principles**: Especially single responsibility - each component does one thing well
 - **Best Practices**: Adherence to KISS (Keep It Simple), DRY (Don't Repeat Yourself), and YAGNI (You Aren't Gonna Need It)
 - **Semantic Versioning**: Strictly follow semver for all releases
+
+
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>

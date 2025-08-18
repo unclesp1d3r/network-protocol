@@ -64,7 +64,7 @@
 Add the library to your `Cargo.toml`:
 ```toml
 [dependencies]
-network-protocol = "1.0.0-RC.1"
+network-protocol = "1.0.0"
 ```
 
 <br>
@@ -380,3 +380,28 @@ src/
 [Benchmarks](./docs/BENCHMARKS.md) | 
 [API Reference](./docs/API.md)
 
+
+<br>
+<!--
+:: LICENSE
+============================================================================ -->
+<div id="license">
+    <hr>
+    <h2>⚖️ License</h2>
+    <p>Licensed under the <b>Apache License</b>, version 2.0 (the <b>"License"</b>); you may not use this software, including, but not limited to the source code, media files, ideas, techniques, or any other associated property or concept belonging to, associated with, or otherwise packaged with this software except in compliance with the <b>License</b>.</p>
+    <p>You may obtain a copy of the <b>License</b> at: <a href="http://www.apache.org/licenses/LICENSE-2.0" title="Apache-2.0 License" target="_blank">http://www.apache.org/licenses/LICENSE-2.0</a>.</p>
+    <p>Unless required by applicable law or agreed to in writing, software distributed under the <b>License</b> is distributed on an "<b>AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND</b>, either express or implied.</p>
+    <p>See the <a href="./LICENSE" title="Software License file">LICENSE</a> file included with this project for the specific language governing permissions and limitations under the <b>License</b>.</p>
+    <br>
+</div>
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>

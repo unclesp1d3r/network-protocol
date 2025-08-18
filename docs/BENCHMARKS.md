@@ -70,3 +70,16 @@ See [zero-copy research](./notes/zero-copy.md) for detailed analysis.
 
 ### Research
 - [Zero Copy](./notes/zero-copy.md)
+
+
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>

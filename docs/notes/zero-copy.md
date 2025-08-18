@@ -102,3 +102,15 @@ Converting to zero-copy would require:
 - Partial implementation: 2-3 days
 - Full implementation: 1-2 weeks
 - Testing and optimization: 1 week
+
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>

@@ -13,3 +13,15 @@
 [Home](../README.md) | 
 [Benchmarks](./BENCHMARKS.md) | 
 [API Reference](./API.md)
+
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>

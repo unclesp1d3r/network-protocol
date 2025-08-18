@@ -325,7 +325,7 @@ let response = dispatcher.dispatch(&Message::Ping)?;
 ### Install Manually
 ```toml
 [dependencies]
-network-protocol = "1.0.0-RC.1"
+network-protocol = "1.0.0"
 ```
 
 ### Install Using Cargo
@@ -2862,3 +2862,15 @@ pub const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024; // 16MB
 pub const DEFAULT_COMPRESSION_ENABLED: bool = true;
 pub const DEFAULT_ENCRYPTION_ENABLED: bool = true;
 ```
+
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>

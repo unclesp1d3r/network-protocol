@@ -87,3 +87,15 @@ Feature requests and feedback on these planned enhancements are welcome through:
 3. Regular community meetings (schedule to be announced)
 
 All major features will go through an RFC process before implementation to gather community feedback and ensure alignment with project goals.
+
+
+
+
+<!--
+:: COPYRIGHT
+============================================================================ -->
+<div align="center">
+  <br>
+  <h2></h2>
+  <sup>COPYRIGHT <small>&copy;</small> 2025 <strong>JAMES GOBER.</strong></sup>
+</div>
