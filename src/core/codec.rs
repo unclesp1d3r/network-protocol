@@ -52,9 +52,18 @@ impl Encoder<Packet> for PacketCodec {
     type Error = ProtocolError;
 
     fn encode(&mut self, packet: Packet, dst: &mut BytesMut) -> Result<()> {
-        let encoded = packet.to_bytes();
-        dst.reserve(encoded.len());
-        dst.put_slice(&encoded);
+        // Calculate total size and reserve space in the buffer
+        let total_size = HEADER_SIZE + packet.payload.len();
+        dst.reserve(total_size);
+        
+        // Write header directly to buffer: magic bytes + version + length
+        dst.put_slice(&crate::config::MAGIC_BYTES);
+        dst.put_u8(crate::config::PROTOCOL_VERSION);
+        dst.put_u32(packet.payload.len() as u32);
+        
+        // Write payload directly to buffer
+        dst.put_slice(&packet.payload);
+        
         Ok(())
     }
 }
