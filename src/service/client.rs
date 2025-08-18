@@ -26,8 +26,10 @@ impl Client {
     /// Connect and perform secure handshake with timeout using default configuration
     #[instrument(skip(addr), fields(address = %addr))]
     pub async fn connect(addr: &str) -> Result<Self> {
-        let mut config = ClientConfig::default();
-        config.address = addr.to_string();
+        let config = ClientConfig {
+            address: addr.to_string(),
+            ..Default::default()
+        };
         Self::connect_with_config(config).await
     }
     

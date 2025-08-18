@@ -47,8 +47,10 @@ pub async fn start_with_shutdown(
     shutdown_rx: oneshot::Receiver<()>
 ) -> Result<()> {
     // Use default configuration with overridden address
-    let mut config = ServerConfig::default();
-    config.address = addr.to_string();
+    let config = ServerConfig {
+        address: addr.to_string(),
+        ..Default::default()
+    };
     start_with_config_and_shutdown(config, shutdown_rx).await
 }
 

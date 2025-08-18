@@ -23,7 +23,7 @@ pub const ENABLE_COMPRESSION: bool = false;
 pub const ENABLE_ENCRYPTION: bool = true;
 
 /// Main network configuration structure that contains all configurable settings
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct NetworkConfig {
     /// Server-specific configuration
     #[serde(default)]
@@ -42,26 +42,17 @@ pub struct NetworkConfig {
     pub logging: LoggingConfig,
 }
 
-impl Default for NetworkConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            client: ClientConfig::default(),
-            transport: TransportConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
+// Default implementation is now derived
 
 impl NetworkConfig {
     /// Load configuration from a TOML file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut file = File::open(path)
-            .map_err(|e| ProtocolError::ConfigError(format!("Failed to open config file: {}", e)))?;
+            .map_err(|e| ProtocolError::ConfigError(format!("Failed to open config file: {e}")))?;
         
         let mut contents = String::new();
         file.read_to_string(&mut contents)
-            .map_err(|e| ProtocolError::ConfigError(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| ProtocolError::ConfigError(format!("Failed to read config file: {e}")))?;
         
         Self::from_toml(&contents)
     }
@@ -69,7 +60,7 @@ impl NetworkConfig {
     /// Load configuration from TOML string
     pub fn from_toml(content: &str) -> Result<Self> {
         toml::from_str::<Self>(content)
-            .map_err(|e| ProtocolError::ConfigError(format!("Failed to parse TOML: {}", e)))
+            .map_err(|e| ProtocolError::ConfigError(format!("Failed to parse TOML: {e}")))
     }
     
     /// Load configuration from environment variables
@@ -122,10 +113,10 @@ impl NetworkConfig {
     /// Save configuration to a file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = toml::to_string_pretty(self)
-            .map_err(|e| ProtocolError::ConfigError(format!("Failed to serialize config: {}", e)))?;
+            .map_err(|e| ProtocolError::ConfigError(format!("Failed to serialize config: {e}")))?;
         
         std::fs::write(path, content)
-            .map_err(|e| ProtocolError::ConfigError(format!("Failed to write config file: {}", e)))?;
+            .map_err(|e| ProtocolError::ConfigError(format!("Failed to write config file: {e}")))?;
         
         Ok(())
     }
@@ -328,6 +319,6 @@ mod log_level_serde {
     {
         let level_str = String::deserialize(deserializer)?;
         Level::from_str(&level_str)
-            .map_err(|_| serde::de::Error::custom(format!("Invalid log level: {}", level_str)))
+            .map_err(|_| serde::de::Error::custom(format!("Invalid log level: {level_str}")))
     }
 }
