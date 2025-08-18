@@ -38,8 +38,8 @@ async fn test_tls_daemon_graceful_shutdown() -> network_protocol::error::Result<
         println!("[test] TLS daemon server stopped");
     });
     
-    // Wait for server to start
-    sleep(Duration::from_millis(300)).await;
+    // Wait for server to start - increased delay to ensure server is fully initialized
+    sleep(Duration::from_millis(800)).await;
     
     // Connect with a client
     let config = network_protocol::transport::tls::TlsClientConfig::new("localhost").insecure();
@@ -103,8 +103,8 @@ async fn test_local_transport_graceful_shutdown() -> network_protocol::error::Re
         println!("[test] Local transport server stopped");
     });
     
-    // Wait for server to start
-    sleep(Duration::from_millis(300)).await;
+    // Wait for server to start - increased delay to ensure server is fully initialized
+    sleep(Duration::from_millis(800)).await;
     
     // Connect client and verify it works
     let mut conn = local::connect(&socket_path_str).await?;
