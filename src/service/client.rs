@@ -1,25 +1,35 @@
-//use tokio_util::codec::Framed;
-//use tokio::net::TcpStream;
 use futures::{SinkExt, StreamExt};
+use tokio::time;
+use tracing::{debug, info, warn, instrument};
 
 use crate::core::packet::Packet;
-//use crate::core::codec::PacketCodec;
 use crate::protocol::message::Message;
 // Import secure handshake functions
 use crate::protocol::handshake::{client_secure_handshake_init, client_secure_handshake_verify, client_derive_session_key};
+use crate::protocol::heartbeat::{build_ping, is_pong};
+use crate::protocol::keepalive::KeepAliveManager;
 use crate::service::secure::SecureConnection;
 use crate::transport::remote;
 use crate::error::{Result, ProtocolError};
+use crate::utils::timeout::{with_timeout_error, DEFAULT_TIMEOUT, HANDSHAKE_TIMEOUT};
 
 /// High-level protocol client with post-handshake encryption
 pub struct Client {
     conn: SecureConnection,
+    keep_alive: KeepAliveManager,
 }
 
 impl Client {
-    /// Connect and perform secure handshake
+    /// Connect and perform secure handshake with timeout
+    #[instrument(skip(addr), fields(address = %addr))]
     pub async fn connect(addr: &str) -> Result<Self> {
-        let mut framed = remote::connect(addr).await?;
+        // Connect with timeout
+        let mut framed = with_timeout_error(
+            async {
+                remote::connect(addr).await
+            },
+            DEFAULT_TIMEOUT
+        ).await?;
         
         // --- Legacy Handshake Support ---
         // Commented out legacy code for reference
@@ -37,9 +47,17 @@ impl Client {
             payload: init_bytes,
         }).await?;
         
-        // Step 2: Receive server response
-        let packet = framed.next().await.ok_or(ProtocolError::Timeout)??;
-        let response: Message = bincode::deserialize(&packet.payload)?;
+        // Step 2: Receive server response with timeout
+        let response = with_timeout_error(
+            async {
+                let packet = framed.next().await
+                    .ok_or(ProtocolError::ConnectionClosed)?
+                    .map_err(|e| ProtocolError::TransportError(e.to_string()))?;
+                bincode::deserialize::<Message>(&packet.payload)
+                    .map_err(|e| ProtocolError::DeserializeError(e.to_string()))
+            },
+            HANDSHAKE_TIMEOUT
+        ).await?;
         
         // Step 3: Verify server response and send confirmation
         // Extract data from server response
@@ -62,23 +80,99 @@ impl Client {
         // Step 4: Derive shared session key
         let key = client_derive_session_key()?;
         let conn = SecureConnection::new(framed, key);
+        let keep_alive = KeepAliveManager::new();
         
-        Ok(Self { conn })
+        info!("Connection established successfully");
+        Ok(Self { conn, keep_alive })
     }
 
     /// Securely send a message
+    #[instrument(skip(self, msg))]
     pub async fn send(&mut self, msg: Message) -> Result<()> {
-        self.conn.secure_send(msg).await
+        let result = self.conn.secure_send(msg).await;
+        if result.is_ok() {
+            self.keep_alive.update_send();
+        }
+        result
     }
 
     /// Securely receive a message
+    #[instrument(skip(self))]
     pub async fn recv(&mut self) -> Result<Message> {
-        self.conn.secure_recv().await
+        let result = self.conn.secure_recv().await;
+        if result.is_ok() {
+            self.keep_alive.update_recv();
+        }
+        result
+    }
+    
+    /// Send a keep-alive ping to the server
+    #[instrument(skip(self))]
+    pub async fn send_keepalive(&mut self) -> Result<()> {
+        debug!("Sending keep-alive ping");
+        let ping = build_ping();
+        self.send(ping).await
+    }
+    
+    /// Wait for messages with keep-alive handling
+    #[instrument(skip(self))]
+    pub async fn recv_with_keepalive(&mut self, timeout_duration: std::time::Duration) -> Result<Message> {
+        let mut ping_interval = time::interval(self.keep_alive.ping_interval());
+        
+        let timeout = time::sleep(timeout_duration);
+        tokio::pin!(timeout);
+        
+        loop {
+            tokio::select! {
+                // Check if we need to send a ping
+                _ = ping_interval.tick() => {
+                    if self.keep_alive.should_ping() {
+                        self.send_keepalive().await?;
+                    }
+                    
+                    // Check if connection is dead
+                    if self.keep_alive.is_connection_dead() {
+                        warn!(dead_seconds = ?self.keep_alive.time_since_last_recv().as_secs(), 
+                              "Connection appears dead");
+                        return Err(ProtocolError::ConnectionTimeout);
+                    }
+                }
+                
+                // Try to receive a message
+                recv_result = self.conn.secure_recv::<Message>() => {
+                    match recv_result {
+                        Ok(msg) => {
+                            self.keep_alive.update_recv();
+                            
+                            // Filter out pong messages, return everything else
+                            if !is_pong(&msg) {
+                                return Ok(msg);
+                            } else {
+                                debug!("Received pong response");
+                                // Continue waiting for non-pong messages
+                            }
+                        }
+                        Err(ProtocolError::Timeout) => {
+                            // Timeout is expected, just continue the loop
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                
+                // User-provided timeout
+                _ = &mut timeout => {
+                    return Err(ProtocolError::Timeout);
+                }
+            }
+        }
     }
 
-    /// Send a message and wait for a response
+    /// Send a message and wait for a response with keep-alive handling
+    #[instrument(skip(self, msg))]
     pub async fn send_and_wait(&mut self, msg: Message) -> Result<Message> {
         self.send(msg).await?;
-        self.recv().await
+        // Use a reasonably long timeout for waiting for a response
+        self.recv_with_keepalive(std::time::Duration::from_secs(30)).await
     }
 }

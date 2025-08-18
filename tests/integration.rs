@@ -1,13 +1,18 @@
 use network_protocol::service::client::Client;
 use network_protocol::service::daemon;
 use network_protocol::protocol::message::Message;
+use network_protocol::protocol::handshake;
 use tokio::time::{sleep, Duration};
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 
 use std::error::Error;
 
 #[tokio::test]
 async fn test_secure_handshake_and_messages() -> Result<(), Box<dyn Error>> {
+    // Clear any previous handshake state
+    handshake::clear_handshake_data().unwrap();
+    
     // Bind to port 0 to get a random available port
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?.to_string();
@@ -15,10 +20,13 @@ async fn test_secure_handshake_and_messages() -> Result<(), Box<dyn Error>> {
 
     // Clone the address for the server task
     let server_addr = addr.clone();
+    
+    // Create shutdown channel for test cleanup
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     // Spawn the daemon server in background
-    tokio::spawn(async move {
-        if let Err(e) = daemon::start(&server_addr).await {
+    let server_handle = tokio::spawn(async move {
+        if let Err(e) = daemon::start_with_shutdown(&server_addr, shutdown_rx).await {
             eprintln!("Server error in test: {e}");
         }
     });
@@ -64,6 +72,10 @@ async fn test_secure_handshake_and_messages() -> Result<(), Box<dyn Error>> {
     if let Err(e) = client.send(Message::Disconnect).await {
         panic!("Failed to disconnect: {e}");
     }
+    
+    // Clean shutdown of the server
+    let _ = shutdown_tx.send(());
+    let _ = server_handle.await;
         
     Ok(())
 }

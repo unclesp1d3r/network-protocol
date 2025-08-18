@@ -12,18 +12,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `#[tracing::instrument]` attributes to key async functions for enhanced contextual logging
 - Created logging configuration module with flexible log level control via environment variables
 - Implemented concurrent-safe logging infrastructure for better debugging and observability
+- Added configurable connection timeouts for all network operations
+- Implemented heartbeat mechanism with keep-alive ping/pong messages
+- Added automatic detection and cleanup of dead connections
+- Implemented client-side timeout handling with automatic reconnection capability
 
 ### Changed
 - Replaced all `println!` and `eprintln!` calls with appropriate structured logging macros (`debug!`, `info!`, `warn!`, `error!`)
 - Enhanced logging detail with structured fields for better filtering and analysis
 - Improved error logging with contextual information across all modules
 - Updated documentation examples to use structured logging
+- Modified connection handling to use timeout wrappers for all I/O operations
+- Enhanced client and server implementations to support configurable timeouts
+- Updated network transport layer to detect and report connection timeouts
+- Refactored message processing loops to handle keep-alive messages transparently
 
 ### Fixed
 - Removed deprecated legacy handshake functions (`derive_shared_key`, `verify_server_ack`, `server_handshake_response`)
 - Removed deprecated message types (`HandshakeInit`, `HandshakeAck`)
 - Removed references to deprecated code from dispatcher, client, and daemon
 - Updated API documentation to reflect removal of legacy handshake functionality
+- Fixed double error unwrapping in timeout handlers for client and server code
+- Corrected handshake state management in parallel test executions
+- Fixed client send_and_wait functionality to properly handle timeout errors
+- Added proper cleanup of connection resources when timeout or keep-alive failures occur
 
 ### Security
 - Enhanced security by removing insecure legacy handshake implementation

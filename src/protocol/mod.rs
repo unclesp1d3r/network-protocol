@@ -34,6 +34,7 @@ pub mod message;
 pub mod handshake;
 pub mod heartbeat;
 pub mod dispatcher;
+pub mod keepalive;
 
 #[cfg(test)]
 mod tests;
