@@ -14,7 +14,10 @@
 </div>
 <br>
 <p>
-    A secure, high-performance network protocol core for Rust applications and services with advanced features like backpressure control, structured logging, timeout handling, and TLS support. Designed for reliability in high-load environments with protection against slow clients and network failures. Supports multiple transport modes (local, remote, TLS, cluster) with consistent APIs and graceful shutdown capabilities.
+    A secure, high-performance network protocol core for Rust applications and services with advanced features including backpressure control, structured logging, timeout handling, and TLS support. The library provides a comprehensive benchmarking framework for performance analysis and optimization, making it suitable for critical infrastructure and high-throughput systems.
+</p>
+<p>
+    This protocol is designed for reliability in high-load environments with built-in protection against slow clients and network failures. It supports multiple transport modes (local, remote, TLS, cluster) with consistent APIs and graceful shutdown capabilities across all implementations. The architecture emphasizes both security and performance, with zero-copy optimizations where beneficial and efficient memory usage patterns throughout.
 </p>
 <br>
 
@@ -52,7 +55,7 @@
 Add the library to your `Cargo.toml`:
 ```toml
 [dependencies]
-network-protocol = "0.9.6"
+network-protocol = "0.9.9"
 ```
 
 <br>
@@ -64,6 +67,7 @@ network-protocol = "0.9.6"
 use network_protocol::utils::logging;
 use network_protocol::service::daemon::{self, ServerConfig};
 use network_protocol::protocol::dispatcher::Dispatcher;
+use network_protocol::error::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -103,8 +107,7 @@ async fn main() -> Result<()> {
     
     // Run server until stopped
     info!("Server starting on 127.0.0.1:9000");
-    server.run().await?;
-    Ok(())
+    server.run().await
 }
 ```
 
@@ -203,6 +206,11 @@ async fn main() -> Result<(), ProtocolError> {
 
 ### TLS Client
 ```rust
+use network_protocol::service::client::{self, TlsClientConfig};
+use network_protocol::protocol::message::Message;
+use network_protocol::error::Result;
+use tracing::info;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Configure TLS client
@@ -214,18 +222,21 @@ async fn main() -> Result<()> {
     };
     
     // Connect with TLS
-    let mut conn = network_protocol::service::client::connect_tls(
+    let mut conn = client::connect_tls(
         "127.0.0.1:9443", 
         tls_config
     ).await?;
+    
+    info!("Connected securely to TLS server");
     
     // Communicate securely
     conn.send(Message::Echo("secure message".into())).await?;
     let reply = conn.receive().await?;
     
+    info!(response = ?reply, "Received secure response");
+    
     // Close connection properly
-    conn.close().await?;
-    Ok()
+    conn.close().await?
 }
 ```
 
@@ -242,16 +253,51 @@ You can extend this list with your own enums or handlers.
 
 <br>
 
-### Custom Handlers
-Register your own handlers:
-```rust
-let mut dispatcher = Dispatcher::new();
+### Custom Message Handlers
+Register your own handlers with the dispatcher to process different message types:
 
-dispatcher.register("PING", |_| Ok(Message::Pong));
-dispatcher.register("ECHO", |msg| Ok(msg.clone()));
+```rust
+use network_protocol::protocol::dispatcher::Dispatcher;
+use network_protocol::protocol::message::Message;
+use network_protocol::error::Result;
+use std::sync::Arc;
+use tracing::info;
+
+// Create a dispatcher (typically shared between connections)
+let dispatcher = Arc::new(Dispatcher::default());
+
+// Basic handlers for built-in message types
+dispatcher.register("PING", |_| {
+    info!("Ping received, sending pong");
+    Ok(Message::Pong)
+});
+
+dispatcher.register("ECHO", |msg| {
+    info!(content = ?msg, "Echo request received");
+    Ok(msg.clone())
+});
+
+// Custom message type handler with complex processing
+dispatcher.register("DATA_PROCESS", |msg| {
+    if let Message::Custom(data) = msg {
+        // Process custom data
+        info!(bytes = data.len(), "Processing custom data");
+        
+        // Return a response based on processing outcome
+        if data.len() > 100 {
+            Ok(Message::Custom(vec![1, 0, 1])) // Success code
+        } else {
+            Ok(Message::Custom(vec![0, 0, 1])) // Error code
+        }
+    } else {
+        // Handle unexpected message type
+        info!("Received incorrect message type for DATA_PROCESS");
+        Ok(Message::Unknown)
+    }
+});
 ```
 
-The dispatcher will auto-route incoming messages based on their `message_type()`.
+The dispatcher automatically routes incoming messages based on their `message_type()`. You can register handlers for both built-in message types and your own custom message types.
 
 <br>
 
@@ -302,6 +348,7 @@ src/
 ```
 
 
-[Docs Root](./docs/README.md) | 
+[Docs](./docs/README.md) | 
+[Performance](./docs/PERFORMANCE.md) | 
 [API Reference](./docs/API.md)
 

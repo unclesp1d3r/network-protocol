@@ -12,8 +12,8 @@
 
 
 [Home](../README.md) | 
-[Docs Root](./README.md)
-
+[Documentation](./README.md) | 
+[Performance](./PERFORMANCE.md)
 <br>
 
 
@@ -56,7 +56,7 @@
 ### Install Manually
 ```toml
 [dependencies]
-network-protocol = "0.9.6"
+network-protocol = "0.9.9"
 ```
 
 ### Install Using Cargo
@@ -145,13 +145,15 @@ println!("Serialized packet: {:?}", bytes);
 
 ### PacketCodec
 
-The `PacketCodec` struct implements the Tokio `Decoder` and `Encoder` traits for packet-based communication.
+The `PacketCodec` struct implements the Tokio `Decoder` and `Encoder` traits for packet-based communication, enabling integration with Tokio's asynchronous I/O framework.
 
 #### Struct Definition
 
 ```rust
 pub struct PacketCodec;
 ```
+
+This struct is a stateless codec that handles framing, encoding, and decoding of protocol packets.
 
 #### Implementations
 
@@ -162,7 +164,25 @@ impl Decoder for PacketCodec {
     type Item = Packet;
     type Error = ProtocolError;
 
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Packet>>
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Packet>> {
+        // Wait until we have at least a full header
+        if src.len() < HEADER_SIZE {
+            return Ok(None);
+        }
+
+        // Extract payload length from header
+        let len = u32::from_be_bytes([src[5], src[6], src[7], src[8]]) as usize;
+        let total_len = HEADER_SIZE + len;
+
+        // Wait until we have the full packet
+        if src.len() < total_len {
+            return Ok(None);
+        }
+
+        // Split off the complete packet and parse it
+        let buf = src.split_to(total_len).freeze();
+        Packet::from_bytes(&buf).map(Some)
+    }
 }
 ```
 
@@ -175,13 +195,33 @@ impl Decoder for PacketCodec {
   - `None` if more data is needed to decode a complete packet
   - `Err(ProtocolError)` if an error occurred during decoding
 
+**Process:**
+1. First checks if enough data exists for the header (9 bytes)
+2. Extracts the payload length from the header
+3. Ensures the buffer contains a complete packet
+4. Splits off the complete frame and calls `Packet::from_bytes` to parse it
+
 ##### Encoder Implementation
 
 ```rust
 impl Encoder<Packet> for PacketCodec {
     type Error = ProtocolError;
 
-    fn encode(&mut self, packet: Packet, dst: &mut BytesMut) -> Result<()>
+    fn encode(&mut self, packet: Packet, dst: &mut BytesMut) -> Result<()> {
+        // Calculate total size and reserve space in the buffer
+        let total_size = HEADER_SIZE + packet.payload.len();
+        dst.reserve(total_size);
+        
+        // Write header directly to buffer: magic bytes + version + length
+        dst.put_slice(&MAGIC_BYTES);
+        dst.put_u8(PROTOCOL_VERSION);
+        dst.put_u32(packet.payload.len() as u32);
+        
+        // Write payload directly to buffer
+        dst.put_slice(&packet.payload);
+        
+        Ok(())
+    }
 }
 ```
 
@@ -192,27 +232,76 @@ impl Encoder<Packet> for PacketCodec {
 **Returns:**
 - `Result<()>`: A result indicating success or an encoding error
 
+**Process:**
+1. Reserves buffer space for the entire packet
+2. Writes the magic bytes (4 bytes) directly to the buffer
+3. Writes the protocol version (1 byte)
+4. Writes the payload length as a 4-byte big-endian integer
+5. Writes the payload bytes
+
 **Example:**
 ```rust
 use network_protocol::core::codec::PacketCodec;
 use network_protocol::core::packet::Packet;
 use tokio_util::codec::{Decoder, Encoder};
-use bytes::BytesMut;
+use bytes::{BytesMut, BufMut};
 
+// Create a stateless codec
 let mut codec = PacketCodec;
+
+// Prepare a buffer for encoding
 let mut buffer = BytesMut::new();
 
-// Encode a packet
+// Create a packet to encode
 let packet = Packet {
     version: 1,
     payload: vec![1, 2, 3, 4, 5],
 };
-codec.encode(packet, &mut buffer).unwrap();
 
-// Decode a packet
-if let Some(decoded_packet) = codec.decode(&mut buffer).unwrap() {
-    println!("Decoded packet: version={}, payload length={}", 
-             decoded_packet.version, decoded_packet.payload.len());
+// Encode the packet into the buffer
+codec.encode(packet, &mut buffer).unwrap();
+println!("Encoded {} bytes", buffer.len());
+
+// Decode the packet from the buffer
+match codec.decode(&mut buffer) {
+    Ok(Some(decoded)) => println!(
+        "Successfully decoded packet: version={}, payload={:?}", 
+        decoded.version, 
+        decoded.payload
+    ),
+    Ok(None) => println!("Need more data to decode a packet"),
+    Err(e) => println!("Error decoding packet: {}", e),
+}
+```
+
+**Integration with Tokio Streams:**
+
+```rust
+use network_protocol::core::codec::PacketCodec;
+use network_protocol::core::packet::Packet;
+use tokio::net::TcpStream;
+use tokio_util::codec::{Framed, FramedRead, FramedWrite};
+use futures::{SinkExt, StreamExt};
+
+// Connect to a server
+let socket = TcpStream::connect("127.0.0.1:8080").await?;
+
+// Create a framed connection using our codec
+let mut framed = Framed::new(socket, PacketCodec);
+
+// Send a packet
+let packet = Packet {
+    version: 1,
+    payload: vec![1, 2, 3, 4, 5],
+};
+framed.send(packet).await?;
+
+// Receive a packet
+if let Some(result) = framed.next().await {
+    match result {
+        Ok(received) => println!("Received packet with payload: {:?}", received.payload),
+        Err(e) => println!("Error receiving packet: {}", e),
+    }
 }
 ```
 
@@ -559,61 +648,113 @@ async fn main() {
 
 ### Message
 
-The `Message` enum defines the types of messages that can be exchanged.
+The `Message` enum defines the types of messages that can be exchanged in the protocol, including standard operations, secure handshake messages, and custom commands.
 
 #### Enum Definition
 
 ```rust
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[repr(u8)]
 pub enum Message {
+    // Standard control messages
     Ping,
     Pong,
-    SecureHandshakeInit { pub_key: [u8; 32], timestamp: u64, nonce: Vec<u8> },
-    SecureHandshakeResponse { pub_key: [u8; 32], timestamp: u64, nonce: Vec<u8> },
-    SecureHandshakeConfirm { nonce_verification: Vec<u8> },
+
+    // Secure handshake using ECDH key exchange
+    // Client initiates with its public key and a timestamp to prevent replay attacks
+    SecureHandshakeInit {
+        /// Client's public key for ECDH exchange
+        pub_key: [u8; 32],
+        /// Timestamp to prevent replay attacks
+        timestamp: u64,
+        /// Random nonce for additional security
+        nonce: [u8; 16],
+    },
+    
+    // Server responds with its public key and a signature
+    SecureHandshakeResponse {
+        /// Server's public key for ECDH exchange
+        pub_key: [u8; 32],
+        /// Server's nonce (different from client nonce)
+        nonce: [u8; 16],
+        /// Hash of the client's nonce to prove receipt
+        nonce_verification: [u8; 32],
+    },
+    
+    // Final handshake confirmation from client
+    SecureHandshakeConfirm {
+        /// Hash of server's nonce to prove receipt
+        nonce_verification: [u8; 32],
+    },
+
+    // Echo message for testing
     Echo(String),
+    
+    // Connection management
     Disconnect,
+    
+    // Custom command with payload for extensibility
+    Custom {
+        command: String,
+        payload: Vec<u8>,
+    },
+
+    // Default case for unrecognized messages
+    #[serde(other)]
     Unknown,
-    Custom { command: String, data: Vec<u8> },
 }
 ```
 
 ### Handshake
 
-The handshake module provides functions for performing secure handshakes between client and server using Elliptic Curve Diffie-Hellman (ECDH) key exchange, offering strong security guarantees including forward secrecy and protection against various attacks.
+The handshake module provides functions for performing secure handshakes between client and server using Elliptic Curve Diffie-Hellman (ECDH) key exchange. It offers strong security guarantees including forward secrecy, protection against replay attacks, and man-in-the-middle attack prevention.
 
 #### Secure ECDH Handshake
 
 ##### `client_secure_handshake_init`
 
-Initiates a secure handshake from the client side using ECDH key exchange.
+Initiates a secure handshake from the client side by generating an ephemeral key pair, timestamp, and nonce.
 
 ```rust
-pub fn client_secure_handshake_init() -> (Message, EphemeralSecret)
+pub fn client_secure_handshake_init() -> Result<Message>
 ```
 
 **Returns:**
-- `(Message, EphemeralSecret)`: A tuple containing:
-  - A `SecureHandshakeInit` message with the client's public key, nonce, and timestamp
-  - The client's ephemeral secret key for later use
+- `Result<Message>`: A `SecureHandshakeInit` message containing:
+  - The client's public key as a 32-byte array
+  - Current timestamp to prevent replay attacks
+  - A cryptographically secure random 16-byte nonce
+
+**Notes:**
+- Internally stores the client's ephemeral secret and nonce in thread-safe storage
+- Returns an error if the thread-safe storage can't be accessed
 
 ##### `server_secure_handshake_response`
 
-Generates a server response to a secure handshake initiation.
+Processes a client's handshake initialization and generates a response.
 
 ```rust
-pub fn server_secure_handshake_response(client_pk: PublicKey, client_nonce: Vec<u8>, client_timestamp: u64)
-    -> Result<(Message, EphemeralSecret)>
+pub fn server_secure_handshake_response(
+    client_pub_key: [u8; 32], 
+    client_nonce: [u8; 16], 
+    client_timestamp: u64
+) -> Result<Message>
 ```
 
 **Parameters:**
-- `client_pk`: The client's public key
-- `client_nonce`: The client's random nonce
-- `client_timestamp`: The client's timestamp
+- `client_pub_key`: The client's public key as a 32-byte array
+- `client_nonce`: The client's random nonce as a 16-byte array
+- `client_timestamp`: The client's timestamp (milliseconds since epoch)
 
 **Returns:**
-- `Result<(Message, EphemeralSecret)>`: A result containing either:
-  - A tuple with a `SecureHandshakeResponse` message and the server's ephemeral secret
-  - An error if the handshake validation fails
+- `Result<Message>`: A `SecureHandshakeResponse` message containing:
+  - The server's public key as a 32-byte array
+  - A new server-generated 16-byte nonce
+  - A SHA-256 hash of the client's nonce for verification
+
+**Errors:**
+- Returns `ProtocolError::HandshakeError` if the timestamp is invalid (too old or from the future)
+- Returns `ProtocolError::HandshakeError` if the thread-safe storage can't be accessed
 
 ##### `client_secure_handshake_verify`
 
@@ -621,153 +762,144 @@ Verifies the server's handshake response and creates a confirmation message.
 
 ```rust
 pub fn client_secure_handshake_verify(
-    server_pk: PublicKey,
-    server_nonce: Vec<u8>,
-    server_timestamp: u64,
-    client_secret: Option<EphemeralSecret>,
-    client_nonce: &Vec<u8>
+    server_pub_key: [u8; 32], 
+    server_nonce: [u8; 16], 
+    nonce_verification: [u8; 32]
 ) -> Result<Message>
 ```
 
 **Parameters:**
-- `server_pk`: The server's public key
-- `server_nonce`: The server's random nonce
-- `server_timestamp`: The server's timestamp
-- `client_secret`: The client's ephemeral secret from initiation
-- `client_nonce`: The client's original nonce
+- `server_pub_key`: The server's public key as a 32-byte array
+- `server_nonce`: The server's random nonce as a 16-byte array
+- `nonce_verification`: SHA-256 hash of the client's nonce
 
 **Returns:**
-- `Result<Message>`: A result containing either a `SecureHandshakeConfirm` message or an error
+- `Result<Message>`: A `SecureHandshakeConfirm` message containing a SHA-256 hash of the server's nonce
+
+**Errors:**
+- Returns `ProtocolError::HandshakeError` if the server's verification of the client nonce fails
+- Returns `ProtocolError::HandshakeError` if the thread-safe storage can't be accessed
+- Returns `ProtocolError::HandshakeError` if the client nonce isn't found in storage
 
 ##### `server_secure_handshake_finalize`
 
-Finalizes the handshake process on the server side.
+Finalizes the handshake process on the server side and derives the session key.
 
 ```rust
-pub fn server_secure_handshake_finalize(
-    confirm_hash: Vec<u8>,
-    server_secret: Option<EphemeralSecret>,
-    client_pk: PublicKey,
-    server_nonce: &Vec<u8>,
-    client_nonce: &Vec<u8>
-) -> Result<()>
+pub fn server_secure_handshake_finalize(nonce_verification: [u8; 32]) -> Result<[u8; 32]>
 ```
 
 **Parameters:**
-- `confirm_hash`: The confirmation hash received from client
-- `server_secret`: The server's ephemeral secret
-- `client_pk`: The client's public key
-- `server_nonce`: The server's nonce
-- `client_nonce`: The client's nonce
+- `nonce_verification`: SHA-256 hash of the server's nonce received from client
 
 **Returns:**
-- `Result<()>`: Success or an error if verification fails
+- `Result<[u8; 32]>`: A 32-byte session key derived from the shared secret and both nonces
 
-##### `client_derive_session_key` / `server_derive_session_key`
+**Errors:**
+- Returns `ProtocolError::HandshakeError` if client's verification of the server nonce fails
+- Returns `ProtocolError::HandshakeError` if any required data is missing from storage
 
-Derives a session key from the shared secret and nonces.
+##### `client_derive_session_key`
+
+Derives the session key on the client side after a successful handshake.
 
 ```rust
-pub fn client_derive_session_key(shared_secret: [u8; 32], client_nonce: &Vec<u8>, server_nonce: &Vec<u8>) -> [u8; 32]
-pub fn server_derive_session_key(shared_secret: [u8; 32], client_nonce: &Vec<u8>, server_nonce: &Vec<u8>) -> [u8; 32]
+pub fn client_derive_session_key() -> Result<[u8; 32]>
 ```
 
-**Parameters:**
-- `shared_secret`: The ECDH shared secret
-- `client_nonce`: The client's nonce
-- `server_nonce`: The server's nonce
-
 **Returns:**
-- `[u8; 32]`: A 32-byte session key
+- `Result<[u8; 32]>`: A 32-byte session key derived from the shared secret and both nonces
+
+**Errors:**
+- Returns `ProtocolError::HandshakeError` if any required data is missing from storage
 
 ##### `clear_handshake_data`
 
-Clears sensitive handshake data from memory.
+Clears all sensitive handshake data from memory, including ephemeral keys and nonces.
 
 ```rust
-pub fn clear_handshake_data()
+pub fn clear_handshake_data() -> Result<()>
 ```
+
+**Returns:**
+- `Result<()>`: Success or an error if clearing fails
+
+**Errors:**
+- Returns `ProtocolError::HandshakeError` if the thread-safe storage can't be accessed
 
 #### Security Features
 
-- **Forward Secrecy**: Uses ephemeral keys that are discarded after session establishment
-- **Anti-Replay Protection**: Validates timestamps and nonces to prevent replay attacks
-- **Man-in-the-Middle Protection**: Full key verification through confirmation hash
+- **Forward Secrecy**: Uses ephemeral x25519 keys that are discarded after session establishment
+- **Anti-Replay Protection**: Validates timestamps to prevent replay attacks (30-second threshold)
+- **Cryptographic Nonces**: Uses secure random nonces to prevent replay and ensure unique sessions
+- **Man-in-the-Middle Protection**: Full key verification through double-sided nonce verification
 - **Session Key Derivation**: Combines shared secret with client and server nonces using SHA-256
+- **Thread-Safety**: All handshake state is stored in thread-safe containers using `Mutex`
 
 **Example:**
 ```rust
 use network_protocol::protocol::handshake;
 use network_protocol::protocol::message::Message;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use network_protocol::error::Result;
 
-// Client initiates handshake
-let (init_msg, client_secret) = handshake::client_secure_handshake_init();
-let client_pk = match &init_msg {
-    Message::SecureHandshakeInit { public_key, nonce, timestamp } => {
-        // Store nonce for later use
-        let client_nonce = nonce.clone();
-        PublicKey::from(*public_key)
-    },
-    _ => panic!("Unexpected message type"),
-};
-
-// Server processes handshake initiation (after receiving init_msg)
-let (response_msg, server_secret) = match init_msg {
-    Message::SecureHandshakeInit { public_key, nonce, timestamp } => {
-        handshake::server_secure_handshake_response(
-            PublicKey::from(*public_key), nonce, timestamp
-        ).unwrap()
-    },
-    _ => panic!("Unexpected message type"),
-};
-
-// Client verifies server response
-let confirm_msg = match response_msg {
-    Message::SecureHandshakeResponse { public_key, nonce, timestamp } => {
-        handshake::client_secure_handshake_verify(
-            PublicKey::from(*public_key), 
-            nonce.clone(), 
-            timestamp, 
-            Some(client_secret),
-            &client_nonce
-        ).unwrap()
-    },
-    _ => panic!("Unexpected message type"),
-};
-
-// Server finalizes handshake
-let result = match confirm_msg {
-    Message::SecureHandshakeConfirm { hash } => {
-        handshake::server_secure_handshake_finalize(
-            hash, 
-            Some(server_secret), 
-            client_pk,
-            &server_nonce, 
-            &client_nonce
-        )
-    },
-    _ => panic!("Unexpected message type"),
-};
-
-// Both sides can derive the same session key
-assert!(result.is_ok());
-// Client derives key
-let client_key = handshake::client_derive_session_key(
-    shared_secret,  // obtained during verification
-    &client_nonce,
-    &server_nonce
-);
-// Server derives identical key
-let server_key = handshake::server_derive_session_key(
-    shared_secret,  // obtained during finalization
-    &client_nonce,
-    &server_nonce
-);
-
-// Clear sensitive data
-handshake::clear_handshake_data();
-```
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Client initiates handshake
+    let init_msg = handshake::client_secure_handshake_init()?;
+    
+    // In a real application, this message would be sent over the network
+    // Here we extract the values directly for demonstration
+    let (client_pub_key, client_nonce, client_timestamp) = match &init_msg {
+        Message::SecureHandshakeInit { pub_key, timestamp, nonce } => {
+            (*pub_key, *nonce, *timestamp)
+        },
+        _ => panic!("Unexpected message type"),
+    };
+    
+    // Server processes handshake initiation
+    let response_msg = handshake::server_secure_handshake_response(
+        client_pub_key,
+        client_nonce,
+        client_timestamp
+    )?;
+    
+    // Extract server's response data
+    let (server_pub_key, server_nonce, nonce_verification) = match &response_msg {
+        Message::SecureHandshakeResponse { pub_key, nonce, nonce_verification } => {
+            (*pub_key, *nonce, *nonce_verification)
+        },
+        _ => panic!("Unexpected message type"),
+    };
+    
+    // Client verifies server response
+    let confirm_msg = handshake::client_secure_handshake_verify(
+        server_pub_key,
+        server_nonce,
+        nonce_verification
+    )?;
+    
+    // Extract confirmation data
+    let client_verification = match &confirm_msg {
+        Message::SecureHandshakeConfirm { nonce_verification } => {
+            *nonce_verification
+        },
+        _ => panic!("Unexpected message type"),
+    };
+    
+    // Server finalizes handshake and gets session key
+    let server_session_key = handshake::server_secure_handshake_finalize(client_verification)?;
+    
+    // Client derives the same session key
+    let client_session_key = handshake::client_derive_session_key()?;
+    
+    // At this point, both sides have the same session key
+    // In a real application, you would verify this with assert_eq!(client_session_key, server_session_key);
+    
+    // Clean up sensitive data
+    handshake::clear_handshake_data()?;
+    
+    Ok(())
+}
 
 #### Legacy Handshake Support
 
@@ -775,7 +907,7 @@ handshake::clear_handshake_data();
 
 ### Dispatcher
 
-The dispatcher module provides a mechanism for routing and handling messages.
+The dispatcher module provides a thread-safe mechanism for routing and handling messages, implementing a command pattern with dynamic handler registration.
 
 #### Struct Definition
 
@@ -785,11 +917,17 @@ pub struct Dispatcher {
 }
 ```
 
+#### Type Definitions
+
+```rust
+type HandlerFn = dyn Fn(&Message) -> Result<Message> + Send + Sync + 'static;
+```
+
 #### Methods
 
 ##### `new`
 
-Creates a new dispatcher.
+Creates a new dispatcher with an empty handler registry.
 
 ```rust
 pub fn new() -> Self
@@ -798,23 +936,42 @@ pub fn new() -> Self
 **Returns:**
 - `Dispatcher`: A new dispatcher instance
 
-##### `register`
+##### `default`
 
-Registers a handler for a specific operation code.
+Provides a default implementation that calls `new()`.
 
 ```rust
-pub fn register<F>(&self, opcode: &str, handler: F)
+impl Default for Dispatcher {
+    fn default() -> Self
+}
+```
+
+**Returns:**
+- `Dispatcher`: A new dispatcher instance via the `new()` method
+
+##### `register`
+
+Registers a handler function for a specific operation code.
+
+```rust
+pub fn register<F>(&self, opcode: &str, handler: F) -> Result<()>
 where
     F: Fn(&Message) -> Result<Message> + Send + Sync + 'static,
 ```
 
 **Parameters:**
-- `opcode`: The operation code to register the handler for
+- `opcode`: The operation code to register the handler for (e.g., "PING", "ECHO")
 - `handler`: The function to handle messages with the given opcode
+
+**Returns:**
+- `Result<()>`: Success or an error if the lock couldn't be acquired
+
+**Errors:**
+- `ProtocolError::Custom`: If the dispatcher's write lock cannot be acquired
 
 ##### `dispatch`
 
-Dispatches a message to the appropriate handler.
+Dispatches a message to the appropriate handler based on its operation code.
 
 ```rust
 pub fn dispatch(&self, msg: &Message) -> Result<Message>
@@ -826,30 +983,105 @@ pub fn dispatch(&self, msg: &Message) -> Result<Message>
 **Returns:**
 - `Result<Message>`: A result containing either the handler's response or an error
 
-**Example:**
+**Errors:**
+- `ProtocolError::Custom`: If the dispatcher's read lock cannot be acquired
+- `ProtocolError::UnexpectedMessage`: If no handler is registered for the message type
+
+**Internal Operation:**
+The dispatcher determines the message type using the `get_opcode` function, which extracts a string identifier from the message. It then looks up the appropriate handler in its registry and invokes it with the message.
+
+**Example: Basic Handler Registration**
 ```rust
 use network_protocol::protocol::dispatcher::Dispatcher;
 use network_protocol::protocol::message::Message;
 use network_protocol::error::Result;
+use std::sync::Arc;
 
-let dispatcher = Dispatcher::new();
+let dispatcher = Arc::new(Dispatcher::new());
 
-// Register handlers
-dispatcher.register("PING", |_| Ok(Message::Pong));
-dispatcher.register("ECHO", |msg| {
+// Register handlers with error handling
+if let Err(e) = dispatcher.register("PING", |_| Ok(Message::Pong)) {
+    eprintln!("Failed to register PING handler: {:?}", e);
+}
+
+if let Err(e) = dispatcher.register("ECHO", |msg| {
     match msg {
         Message::Echo(s) => Ok(Message::Echo(s.clone())),
         _ => Ok(Message::Unknown),
     }
-});
+}) {
+    eprintln!("Failed to register ECHO handler: {:?}", e);
+}
 
-// Dispatch a ping message
-let response = dispatcher.dispatch(&Message::Ping).unwrap();
-match response {
-    Message::Pong => println!("Received pong response"),
-    _ => println!("Unexpected response type"),
+// Dispatch a ping message with error handling
+match dispatcher.dispatch(&Message::Ping) {
+    Ok(Message::Pong) => println!("Received expected pong response"),
+    Ok(other) => println!("Received unexpected response: {:?}", other),
+    Err(e) => println!("Error dispatching message: {:?}", e),
 }
 ```
+
+**Example: Advanced Handler with Custom Messages**
+```rust
+use network_protocol::protocol::dispatcher::Dispatcher;
+use network_protocol::protocol::message::Message;
+use network_protocol::error::{Result, ProtocolError};
+use std::sync::Arc;
+use tracing::info;
+
+// Create a dispatcher for a data processing service
+let dispatcher = Arc::new(Dispatcher::default());
+
+// Register a handler that processes binary data
+if let Err(e) = dispatcher.register("PROCESS_DATA", |msg| {
+    match msg {
+        Message::Custom { command, data } => {
+            info!(command = command, data_len = data.len(), "Processing custom data");
+            
+            if data.len() > 0 {
+                // Process the data (example: check if it starts with a magic byte)
+                if data[0] == 0x42 {
+                    // Success response with processed result
+                    Ok(Message::Custom { 
+                        command: "RESULT".to_string(),
+                        data: vec![0x01, 0x00] // Success code
+                    })
+                } else {
+                    // Error response for invalid data
+                    Ok(Message::Custom { 
+                        command: "ERROR".to_string(),
+                        data: vec![0xFF] // Error code
+                    })
+                }
+            } else {
+                // Empty data error
+                Err(ProtocolError::InvalidMessage)
+            }
+        },
+        // Return error for any other message type
+        _ => Err(ProtocolError::UnexpectedMessage),
+    }
+}) {
+    eprintln!("Failed to register data processor: {:?}", e);
+}
+
+// Example usage: process some data
+let data_msg = Message::Custom {
+    command: "PROCESS_DATA".to_string(),
+    data: vec![0x42, 0x01, 0x02, 0x03],
+};
+
+let result = dispatcher.dispatch(&data_msg);
+info!(result = ?result, "Got processing result");
+```
+
+**Thread Safety Notes:**
+The `Dispatcher` uses an `Arc<RwLock<...>>` for thread-safe access to handlers, allowing:
+- Multiple readers (dispatch calls) to operate concurrently
+- Exclusive access during handler registration
+- Safe sharing between threads using `Arc`
+
+This makes it suitable for high-concurrency servers where multiple worker threads handle incoming requests.
 
 ### Heartbeat
 
@@ -1859,31 +2091,156 @@ println!("Elapsed time (ms): {}", elapsed);
 
 ## Error Handling
 
-The error module defines various error types that can occur during network protocol operations.
+The error module defines a unified error handling mechanism for the network protocol, encapsulating various error scenarios such as I/O errors, serialization issues, and protocol-specific logic failures. It uses the `thiserror` crate for ergonomic error definition and provides a custom `Result<T>` alias to simplify function signatures across the protocol stack.
 
-#### Enum Definition
-
-```rust
-pub enum ProtocolError {
-    IoError(io::Error),
-    SerializationError(bincode::Error),
-    InvalidHeader,
-    OversizedPacket,
-    UnsupportedVersion,
-    HandshakeError,
-    EncryptionError,
-    DecryptionError,
-    CompressionError,
-    InvalidMessage,
-    Timeout,
-    Other(String),
-}
-```
-
-#### Type Aliases
+### Type Aliases
 
 ```rust
 pub type Result<T> = std::result::Result<T, ProtocolError>;
+```
+
+### ProtocolError Enum Definition
+
+```rust
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum ProtocolError {
+    #[error("I/O error: {0}")]
+    #[serde(skip_serializing, skip_deserializing)]
+    Io(#[from] io::Error),
+
+    #[error("Serialization error: {0}")]
+    #[serde(skip_serializing, skip_deserializing)]
+    Serialization(#[from] bincode::Error),
+    
+    #[error("Serialize error: {0}")]
+    SerializeError(String),
+    
+    #[error("Deserialize error: {0}")]
+    DeserializeError(String),
+    
+    #[error("Transport error: {0}")]
+    TransportError(String),
+    
+    #[error("Connection closed")]
+    ConnectionClosed,
+    
+    #[error("Security error: {0}")]
+    SecurityError(String),
+
+    #[error("Invalid protocol header")]
+    InvalidHeader,
+
+    #[error("Unsupported protocol version: {0}")]
+    UnsupportedVersion(u8),
+
+    #[error("Packet too large: {0} bytes")]
+    OversizedPacket(usize),
+
+    #[error("Decryption failed")]
+    DecryptionFailure,
+
+    #[error("Encryption failed")]
+    EncryptionFailure,
+
+    #[error("Compression failed")]
+    CompressionFailure,
+
+    #[error("Decompression failed")]
+    DecompressionFailure,
+
+    #[error("Handshake failed: {0}")]
+    HandshakeError(String),
+
+    #[error("Unexpected message type")]
+    UnexpectedMessage,
+
+    #[error("Timeout occurred")]
+    Timeout,
+    
+    #[error("Connection timed out (no activity)")]
+    ConnectionTimeout,
+
+    #[error("Custom error: {0}")]
+    Custom(String),
+
+    #[error("TLS error: {0}")]
+    TlsError(String),
+}
+```
+
+### Error Variants
+
+- **`Io`**: Wraps standard I/O errors from operations like reading/writing to sockets
+- **`Serialization`**: Wraps bincode serialization/deserialization errors
+- **`SerializeError`/`DeserializeError`**: Custom serialization error messages
+- **`TransportError`**: Errors in the transport layer (TCP, UDS, etc.)
+- **`ConnectionClosed`**: Indicates a connection was cleanly closed
+- **`SecurityError`**: General security-related errors
+- **`InvalidHeader`**: Invalid protocol header in packet
+- **`UnsupportedVersion`**: Protocol version not supported
+- **`OversizedPacket`**: Packet size exceeds allowed maximum
+- **`DecryptionFailure`/`EncryptionFailure`**: Cryptographic operation failures
+- **`CompressionFailure`/`DecompressionFailure`**: Data compression operation failures
+- **`HandshakeError`**: Failure during connection handshake process
+- **`UnexpectedMessage`**: Received message type doesn't match expected type
+- **`Timeout`**: Operation timed out
+- **`ConnectionTimeout`**: Connection timed out due to inactivity
+- **`Custom`**: Custom error messages for specific situations
+- **`TlsError`**: Errors related to TLS operations
+
+### Example Usage
+
+```rust
+use network_protocol::error::{ProtocolError, Result};
+use std::fs::File;
+use std::io::Read;
+use tracing::{info, error};
+
+// Function that returns our custom Result type
+fn read_file(path: &str) -> Result<String> {
+    // Convert io::Error to ProtocolError::Io automatically with the ? operator
+    let mut file = File::open(path).map_err(ProtocolError::Io)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).map_err(ProtocolError::Io)?;
+    Ok(contents)
+}
+
+// Example of handling specific error types
+fn handle_network_error(result: Result<()>) {
+    match result {
+        Ok(()) => info!("Operation completed successfully"),
+        Err(ProtocolError::Timeout) => error!("Operation timed out, retrying..."),
+        Err(ProtocolError::ConnectionClosed) => info!("Connection closed gracefully"),
+        Err(ProtocolError::Io(io_err)) if io_err.kind() == std::io::ErrorKind::ConnectionRefused => {
+            error!("Connection refused, server might be down")
+        },
+        Err(e) => error!(error = %e, "Unexpected error occurred"),
+    }
+}
+```
+
+### Error Propagation
+
+The library makes extensive use of the `?` operator for concise error handling and propagation. Combined with the `#[from]` attribute provided by `thiserror`, this allows for automatic conversion of standard error types into `ProtocolError` variants.
+
+```rust
+// Example showing error propagation in the protocol
+async fn send_with_timeout<T: Serialize>(
+    connection: &mut Connection, 
+    message: &T,
+    timeout: Duration
+) -> Result<()> {
+    // TimeoutError automatically converts to ProtocolError::Timeout
+    tokio::time::timeout(timeout, async {
+        // BincodeError automatically converts to ProtocolError::Serialization
+        let bytes = bincode::serialize(message)?;
+        
+        // IoError automatically converts to ProtocolError::Io
+        connection.write_all(&bytes).await?;
+        
+        Ok(())
+    }).await.map_err(|_| ProtocolError::Timeout)??
+}
 ```
 
 ## Logging

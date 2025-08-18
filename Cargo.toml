@@ -1,6 +1,6 @@
 [package]
 name = "network-protocol"
-version = "0.9.6"
+version = "0.9.9"
 
 edition = "2021"
 readme = "README.md"
@@ -10,13 +10,13 @@ authors = [
     "James Gober <code@jamesgober.dev>"
 ]
 
-description = "Secure, high-performance protocol core with backpressure control, structured logging, timeout handling, and TLS support for robust Rust networked applications and services."
+description = "Secure, high-performance protocol core with backpressure control, structured logging, timeout handling, TLS support, and comprehensive benchmarking for robust Rust networked applications and services."
 keywords = [
     "network", 
     "protocol", 
     "secure", 
     "backpressure", 
-    "timeout"
+    "performance"
 ]
 categories = [
     "network-programming", 

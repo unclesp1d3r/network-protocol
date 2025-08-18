@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.9.9] - 2025-08-17
+
 ### Added
 - Comprehensive benchmarking documentation in API.md
 - Performance metrics reference in README.md
 - Benchmark result interpretation guidelines
+- Research and evaluation of zero-copy deserialization approaches
+- Detailed zero-copy deserialization analysis in docs/zero-copy.md
 
 ### Changed
 - Improved benchmark tests with proper graceful shutdown
 - Enhanced error handling in performance tests
 - Added explicit server termination in benchmark tests
+- Updated project description and keywords to reflect benchmarking focus
 
 ### Fixed
 - Fixed "broken pipe" errors in benchmark tests with proper connection handling
