@@ -11,4 +11,5 @@
 </div>
 
 [Home](../README.md) | 
+[Benchmarks](./BENCHMARKS.md) | 
 [API Reference](./API.md)
