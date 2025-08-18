@@ -13,7 +13,7 @@
 
 [Home](../README.md) | 
 [Documentation](./README.md) | 
-[Performance](./PERFORMANCE.md)
+[Benchmarks](./BENCHMARKS.md)
 <br>
 
 

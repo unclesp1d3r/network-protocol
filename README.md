@@ -349,6 +349,6 @@ src/
 
 
 [Docs](./docs/README.md) | 
-[Performance](./docs/PERFORMANCE.md) | 
+[Benchmarks](./docs/BENCHMARKS.md) | 
 [API Reference](./docs/API.md)
 
