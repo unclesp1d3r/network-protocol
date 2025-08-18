@@ -1,6 +1,6 @@
 [package]
 name = "network-protocol"
-version = "0.9.9"
+version = "1.0.0-RC.1"
 
 edition = "2021"
 readme = "README.md"

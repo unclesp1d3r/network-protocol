@@ -64,7 +64,7 @@
 Add the library to your `Cargo.toml`:
 ```toml
 [dependencies]
-network-protocol = "0.9.9"
+network-protocol = "1.0.0-RC.1"
 ```
 
 <br>

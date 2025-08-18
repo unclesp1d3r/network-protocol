@@ -19,6 +19,13 @@
 
 ## Table of Contents
 
+- [Getting Started](#getting-started)
+  - [Configuration](#configuration-guide)
+  - [Server Setup](#server-setup)
+  - [Client Setup](#client-setup)
+  - [Transport Options](#transport-options)
+  - [TLS Security](#tls-security)
+  - [Using Dispatchers](#using-dispatchers)
 - [Installation](#installation)
 - [Core Modules](#core-modules)
   - [Packet](#packet)
@@ -51,12 +58,274 @@
 - [Configuration](#configuration)
 - [Logging](#logging)
 
+## Getting Started
+
+This guide will help you quickly get started with the `network-protocol` library, focusing on configuration, setup, and common usage patterns.
+
+### Configuration Guide
+
+The library uses a comprehensive configuration system that supports both TOML files and environment variables. Configuration options are organized into sections for server, client, transport, and logging.
+
+#### Using TOML Configuration
+
+Create a `config.toml` file in your project with your desired settings:
+
+```toml
+# Server-specific configuration
+[server]
+address = "127.0.0.1:9000"
+backpressure_limit = 32
+connection_timeout = 5000    # milliseconds
+heartbeat_interval = 15000   # milliseconds
+
+# Client-specific configuration
+[client]
+address = "127.0.0.1:9000"
+connection_timeout = 5000    # milliseconds
+response_timeout = 30000     # milliseconds
+
+# Transport configuration
+[transport]
+compression_enabled = false
+encryption_enabled = true
+
+# Logging configuration
+[logging]
+app_name = "my-application"
+log_level = "info"           # options: trace, debug, info, warn, error
+log_to_console = true
+```
+
+Load the configuration in your code:
+
+```rust
+use network_protocol::config::Config;
+
+async fn main() -> Result<()> {
+    // Load from a specific file path
+    let config = Config::from_file("path/to/config.toml").await?;
+    
+    // Or load from the default location
+    let config = Config::load().await?;
+    
+    // Access configuration values
+    let server_addr = config.server.address.clone();
+    println!("Server will bind to: {}", server_addr);
+}
+```
+
+#### Using Environment Variables
+
+Environment variables override corresponding TOML settings, following this naming pattern:
+
+```
+NP_SECTION_KEY=value
+```
+
+For example:
+
+```bash
+# Override server address
+export NP_SERVER_ADDRESS="0.0.0.0:8080"
+
+# Override logging level
+export NP_LOGGING_LOG_LEVEL="debug"
+
+# Override client timeout
+export NP_CLIENT_CONNECTION_TIMEOUT="10000"
+```
+
+### Server Setup
+
+Create a basic server with default configuration:
+
+```rust
+use network_protocol::service::daemon::Daemon;
+use network_protocol::protocol::dispatcher::Dispatcher;
+use network_protocol::protocol::message::Message;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Create a dispatcher for handling messages
+    let dispatcher = Arc::new(Dispatcher::new());
+    
+    // Register message handlers
+    dispatcher.register("PING", |_| Ok(Message::Pong))?;
+    dispatcher.register("ECHO", |msg| {
+        match msg {
+            Message::Echo(s) => Ok(Message::Echo(s.clone())),
+            _ => Ok(Message::Unknown),
+        }
+    })?;
+    
+    // Start the server with default config
+    let daemon = Daemon::new(dispatcher);
+    daemon.start().await?
+}
+```
+
+With custom configuration:
+
+```rust
+use network_protocol::config::Config;
+use network_protocol::service::daemon::Daemon;
+
+async fn main() -> Result<()> {
+    // Load configuration
+    let config = Config::load().await?;
+    
+    // Create and start daemon with custom config
+    let daemon = Daemon::with_config(dispatcher, config);
+    daemon.start().await?
+}
+```
+
+### Client Setup
+
+Create a client and communicate with a server:
+
+```rust
+use network_protocol::service::client::Client;
+use network_protocol::protocol::message::Message;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Connect to server with default configuration
+    let mut client = Client::connect("127.0.0.1:9000").await?;
+    
+    // Send a ping message
+    let response = client.send(Message::Ping).await?;
+    
+    // Check the response
+    match response {
+        Message::Pong => println!("Server responded with pong"),
+        _ => println!("Unexpected response: {:?}", response),
+    }
+    
+    // Send an echo message
+    let response = client.send(Message::Echo("Hello, server!".to_string())).await?;
+    println!("Echo response: {:?}", response);
+    
+    // Disconnect gracefully
+    client.disconnect().await?
+}
+```
+
+### Transport Options
+
+The library supports multiple transport methods:
+
+#### TCP Transport
+
+```rust
+use network_protocol::transport::remote;
+
+// Server
+async fn start_tcp_server() -> Result<()> {
+    remote::start_server("127.0.0.1:8080").await
+}
+
+// Client
+async fn connect_to_tcp_server() -> Result<()> {
+    let framed = remote::connect("127.0.0.1:8080").await?;
+    // Use framed for sending/receiving packets
+}
+```
+
+#### Unix Domain Socket Transport
+
+```rust
+use network_protocol::transport::local;
+
+// Server
+async fn start_uds_server() -> Result<()> {
+    local::start_server("/tmp/network_protocol.sock").await
+}
+
+// Client
+async fn connect_to_uds_server() -> Result<()> {
+    let framed = local::connect("/tmp/network_protocol.sock").await?;
+    // Use framed for sending/receiving packets
+}
+```
+
+### TLS Security
+
+Secure your connections with TLS:
+
+```rust
+use network_protocol::transport::tls;
+use network_protocol::transport::tls::{TlsConfig, TlsClientConfig};
+
+// TLS Server
+async fn start_tls_server() -> Result<()> {
+    let config = TlsConfig {
+        cert_path: "certs/server.crt",
+        key_path: "certs/server.key",
+        ca_path: Some("certs/ca.crt"),  // For client cert validation
+        verify_client: true,             // Enable mTLS
+    };
+    
+    tls::start_server("127.0.0.1:8443", config).await
+}
+
+// TLS Client
+async fn connect_to_tls_server() -> Result<()> {
+    let config = TlsClientConfig {
+        cert_path: Some("certs/client.crt"),  // For mTLS
+        key_path: Some("certs/client.key"),   // For mTLS
+        ca_path: Some("certs/ca.crt"),        // To validate server cert
+        server_name: "example.com",           // SNI
+    };
+    
+    let framed = tls::connect("127.0.0.1:8443", config).await?;
+    // Use framed for sending/receiving packets
+}
+```
+
+### Using Dispatchers
+
+Dispatchers provide a flexible way to handle different message types:
+
+```rust
+use network_protocol::protocol::dispatcher::Dispatcher;
+use network_protocol::protocol::message::Message;
+use std::sync::Arc;
+
+// Create a shared dispatcher
+let dispatcher = Arc::new(Dispatcher::new());
+
+// Register a simple ping handler
+dispatcher.register("PING", |_| Ok(Message::Pong))?;
+
+// Register a more complex handler for custom messages
+dispatcher.register("CUSTOM", |msg| {
+    match msg {
+        Message::Custom { command, payload } => {
+            // Process the payload
+            let result = process_payload(payload)?;
+            
+            // Return a response with the result
+            Ok(Message::Custom { 
+                command: "RESULT".to_string(),
+                payload: result,
+            })
+        },
+        _ => Err(ProtocolError::UnexpectedMessage),
+    }
+})?;
+
+// Dispatch a message
+let response = dispatcher.dispatch(&Message::Ping)?;
+```
+
 ## Installation
 
 ### Install Manually
 ```toml
 [dependencies]
-network-protocol = "0.9.9"
+network-protocol = "1.0.0-RC.1"
 ```
 
 ### Install Using Cargo

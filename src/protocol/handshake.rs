@@ -633,6 +633,7 @@ fn client_derive_session_key_internal(test_nonce: Option<[u8; 16]>) -> Result<[u
 
 /// Legacy client handshake function for compatibility
 /// Now uses the secure handshake implementation
+#[deprecated(since = "1.0.0-RC.1", note = "Use client_secure_handshake_init() instead")]
 #[instrument]
 pub fn client_handshake_init() -> Result<(u64, Message)> {
     let mut rng = OsRng;
