@@ -259,7 +259,25 @@ fn register_default_handlers(dispatcher: &Arc<Dispatcher>) -> Result<()> {
     Ok(())
 }
 
-/// Handle a secure connection after handshake
+/// Message type for the internal processing channel
+#[derive(Debug)]
+enum ProcessingMessage {
+    /// Regular message to be processed
+    Message(Message),
+    /// Signal to terminate the processing task
+    Terminate,
+}
+
+/// Response from the processing task
+#[derive(Debug)]
+struct ProcessingResult {
+    /// The original message ID or correlation ID
+    original_id: usize,
+    /// The response message to send back
+    response: Option<Message>,
+}
+
+/// Handle a secure connection after handshake with backpressure
 #[instrument(skip(conn, dispatcher), fields(peer = %peer))]
 async fn handle_secure_connection(
     mut conn: SecureConnection,
@@ -270,15 +288,33 @@ async fn handle_secure_connection(
     let mut keep_alive = KeepAliveManager::new();
     let mut ping_interval = time::interval(keep_alive.ping_interval());
     
-    // --- Secure Message Loop ---
-    loop {
+    // --- Create bounded channels for backpressure (adjust capacity as needed) ---
+    let (msg_tx, msg_rx) = mpsc::channel::<ProcessingMessage>(32);
+    let (resp_tx, mut resp_rx) = mpsc::channel::<ProcessingResult>(32);
+    
+    // --- Spawn message processing task ---
+    let dispatcher_clone = dispatcher.clone();
+    let processor_handle = tokio::spawn(async move {
+        process_messages(msg_rx, resp_tx, dispatcher_clone).await
+    });
+    
+    // --- Set up result for final status ---
+    let mut final_result = Ok(());
+    let mut next_msg_id: usize = 0;
+    
+    // --- Secure Message Loop with Backpressure ---
+    'main: loop {
         tokio::select! {
             // Check if we need to send a ping
             _ = ping_interval.tick() => {
                 if keep_alive.should_ping() {
                     debug!("Sending keep-alive ping");
                     let ping = build_ping();
-                    conn.secure_send(ping).await?;
+                    if let Err(e) = conn.secure_send(ping).await {
+                        warn!(error = %e, "Failed to send ping");
+                        final_result = Err(e);
+                        break 'main;
+                    }
                     keep_alive.update_send();
                 }
                 
@@ -286,41 +322,141 @@ async fn handle_secure_connection(
                 if keep_alive.is_connection_dead() {
                     warn!(dead_seconds = ?keep_alive.time_since_last_recv().as_secs(), 
                           "Connection appears dead, closing");
-                    return Err(ProtocolError::ConnectionTimeout);
+                    final_result = Err(ProtocolError::ConnectionTimeout);
+                    break 'main;
                 }
             }
             
-            // Try to receive a message
+            // Process any responses from the processing task
+            Some(result) = resp_rx.recv() => {
+                if let Some(response) = result.response {
+                    debug!("Sending response for message {}", result.original_id);
+                    if let Err(e) = conn.secure_send(response).await {
+                        warn!(error = %e, "Failed to send response");
+                        final_result = Err(e);
+                        break 'main;
+                    }
+                    keep_alive.update_send();
+                }
+            }
+            
+            // Try to receive a message with backpressure awareness
             recv_result = conn.secure_recv::<Message>() => {
                 match recv_result {
                     Ok(msg) => {
                         debug!(message = ?msg, "Received message");
                         keep_alive.update_recv();
                         
-                        // Check for disconnect message
+                        // Check for disconnect message - handle directly without channel
                         if matches!(msg, Message::Disconnect) {
                             info!("Received disconnect request");
-                            return Ok(());
+                            break 'main;
                         }
                         
-                        // Special handling for pong messages
+                        // Special handling for pong messages - handle directly
                         if is_pong(&msg) {
                             debug!("Received pong response");
                             continue;
                         }
                         
-                        // Process normal messages
-                        let reply = dispatcher.dispatch(&msg)?;
-                        conn.secure_send(reply).await?;
-                        keep_alive.update_send();
+                        // Just increment the ID counter for the next message
+                        next_msg_id = next_msg_id.wrapping_add(1);
+                        
+                        // Apply backpressure if needed
+                        if msg_tx.capacity() == 0 {
+                            debug!("Channel full - applying backpressure");
+                            
+                            // Wait until the channel has capacity before receiving more messages
+                            match msg_tx.reserve().await {
+                                Ok(permit) => {
+                                    // Channel has capacity again, send the message
+                                    permit.send(ProcessingMessage::Message(msg));
+                                },
+                                Err(_) => {
+                                    // Channel was closed, exit the loop
+                                    warn!("Processing channel closed unexpectedly");
+                                    break 'main;
+                                }
+                            }
+                        } else {
+                            // Channel has capacity, send the message
+                            if (msg_tx.send(ProcessingMessage::Message(msg)).await).is_err() {
+                                // Channel was closed, exit the loop
+                                warn!("Failed to send message to processing channel");
+                                break 'main;
+                            }
+                        }
                     }
                     Err(ProtocolError::Timeout) => {
                         // Timeout is expected, just continue the loop
                         continue;
                     }
-                    Err(e) => return Err(e),
+                    Err(e) => {
+                        final_result = Err(e);
+                        break 'main;
+                    }
                 }
             }
         }
     }
+    
+    // Signal the processor to terminate
+    debug!("Signaling processor to terminate");
+    let _ = msg_tx.send(ProcessingMessage::Terminate).await;
+    
+    // Wait for processor to finish
+    debug!("Waiting for processor to terminate");
+    let _ = processor_handle.await;
+    
+    final_result
+}
+
+/// Process messages from the channel
+#[instrument(skip(rx, resp_tx, dispatcher), level = "debug")]
+async fn process_messages(
+    mut rx: mpsc::Receiver<ProcessingMessage>,
+    resp_tx: mpsc::Sender<ProcessingResult>,
+    dispatcher: Arc<Dispatcher>,
+) {
+    let mut msg_counter: usize = 0;
+    
+    while let Some(proc_msg) = rx.recv().await {
+        match proc_msg {
+            ProcessingMessage::Message(msg) => {
+                let msg_id = msg_counter;
+                msg_counter += 1;
+                
+                debug!(msg_id = msg_id, message = ?msg, "Processing message from channel");
+                
+                let response = match dispatcher.dispatch(&msg) {
+                    Ok(reply) => {
+                        // Successfully dispatched, prepare response
+                        Some(reply)
+                    },
+                    Err(e) => {
+                        // Log dispatch error but continue processing messages
+                        warn!(error = %e, "Error dispatching message");
+                        None
+                    }
+                };
+                
+                // Send response back through the response channel
+                let result = ProcessingResult {
+                    original_id: msg_id,
+                    response,
+                };
+                
+                if (resp_tx.send(result).await).is_err() {
+                    warn!("Failed to send processing result - reader likely disconnected");
+                    break;
+                }
+            },
+            ProcessingMessage::Terminate => {
+                debug!("Processor received terminate signal");
+                break;
+            }
+        }
+    }
+    
+    debug!("Message processor terminated");
 }

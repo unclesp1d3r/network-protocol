@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented heartbeat mechanism with keep-alive ping/pong messages
 - Added automatic detection and cleanup of dead connections
 - Implemented client-side timeout handling with automatic reconnection capability
+- Implemented backpressure mechanism in connection handling with bounded channels to prevent server overload
+- Added ability to pause reading from connections when processing queues are full
 
 ### Changed
 - Optimized packet encoding to avoid intermediate Vec<u8> allocations, reducing memory pressure and improving performance
@@ -37,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected handshake state management in parallel test executions
 - Fixed client send_and_wait functionality to properly handle timeout errors
 - Added proper cleanup of connection resources when timeout or keep-alive failures occur
+- Fixed backpressure test freezing by adding proper timeout handling for all async operations
+- Added appropriate mutability declarations for client variables in tests
 
 ### Security
 - Enhanced security by removing insecure legacy handshake implementation
