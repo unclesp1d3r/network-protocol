@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented client-side timeout handling with automatic reconnection capability
 
 ### Changed
+- Optimized packet encoding to avoid intermediate Vec<u8> allocations, reducing memory pressure and improving performance
 - Replaced all `println!` and `eprintln!` calls with appropriate structured logging macros (`debug!`, `info!`, `warn!`, `error!`)
 - Enhanced logging detail with structured fields for better filtering and analysis
 - Improved error logging with contextual information across all modules
