@@ -24,6 +24,11 @@
   - [Packet](#packet)
   - [PacketCodec](#packetcodec)
 - [Transport](#transport)
+- [Benchmarking](#benchmarking)
+  - [Running Benchmarks](#running-benchmarks)
+  - [Performance Metrics](#performance-metrics)
+  - [Interpreting Results](#interpreting-results)
+  - [Custom Benchmark Configuration](#custom-benchmark-configuration)
   - [Remote Transport](#remote-transport)
   - [Local Transport](#local-transport)
   - [TLS Transport](#tls-transport)
@@ -1669,6 +1674,186 @@ sleep(Duration::from_millis(500));
 
 // Calculate duration since the recorded time
 let elapsed = time::duration_since(now);
+println!("Elapsed time (ms): {}", elapsed);
+```
+
+## Benchmarking
+
+The network-protocol library provides built-in benchmarking tools to measure performance characteristics such as latency and throughput. These benchmarks are essential for ensuring high performance in production environments.
+
+### Running Benchmarks
+
+To run the benchmarks, use the following command:
+
+```bash
+cargo test --test perf -- --nocapture
+```
+
+For more detailed performance metrics, use the `--nocapture` flag to see console output:
+
+```bash
+cargo test --test perf -- --nocapture
+```
+
+To run a specific benchmark test:
+
+```bash
+cargo test --test perf benchmark_roundtrip_latency -- --nocapture
+cargo test --test perf benchmark_throughput -- --nocapture
+```
+
+### Understanding Benchmark Output
+
+When running benchmarks, you may see connection errors like `Broken pipe` or `ConnectionClosed`. These are normal and expected during benchmark shutdown sequence. The most important information to look for is:
+
+- **Latency Benchmark**: Look for "Average roundtrip latency over X successful packets: Xµs per message"
+- **Throughput Benchmark**: Look for "Throughput: X messages/sec (X successful of X attempts)"
+
+#### Common Error Messages
+
+```
+Error sending ping message: Io(Os { code: 32, kind: BrokenPipe, message: "Broken pipe" })
+Error receiving response: ConnectionClosed
+```
+
+These errors typically appear when the server shuts down while there are still pending client requests. They do not indicate a problem with the benchmark itself, as long as you see successful metrics reported above the errors.
+
+#### Troubleshooting
+
+If you see "No successful exchanges completed" in the throughput benchmark:
+
+1. Increase the delay between messages (currently set to 20ms)
+2. Check if another process is using the same port
+3. Ensure the server has enough time to start before client connects
+
+### Performance Metrics
+
+The library measures two primary performance metrics:
+
+#### Roundtrip Latency
+
+Measures the time taken for a complete message roundtrip (client → server → client).
+
+```rust
+#[tokio::test]
+async fn benchmark_roundtrip_latency() {
+    // Test setup
+    let addr = "127.0.0.1:7799";
+    
+    // Start server
+    let _server_handle = tokio::spawn(async move {
+        daemon::start(addr).await.unwrap();
+    });
+    
+    // Connect client and send/receive multiple ping-pong messages
+    // ...
+    
+    // Calculate average latency
+    if successful > 0 {
+        let avg = total / successful;
+        println!("Average roundtrip latency over {successful} successful packets: {avg:?} per message");
+    }
+}
+```
+
+#### Message Throughput
+
+Measures the number of messages that can be processed per second.
+
+```rust
+#[tokio::test]
+async fn benchmark_throughput() {
+    // Test setup
+    let addr = "127.0.0.1:7798";
+    
+    // Start server and connect client
+    // ...
+    
+    // Send multiple messages and count successful exchanges
+    // ...
+    
+    // Calculate throughput
+    let elapsed = start.elapsed();
+    if successful > 0 {
+        let per_sec = successful as f64 / elapsed.as_secs_f64();
+        println!("Throughput: {per_sec:.0} messages/sec ({successful} successful of {rounds} attempts) over {elapsed:?} total");
+    }
+}
+```
+
+### Interpreting Results
+
+When running benchmarks, the output will show:
+
+- **Roundtrip Latency**: Average time in microseconds for a complete ping-pong cycle
+- **Throughput**: Messages processed per second
+
+Typical results on modern hardware should show:
+
+| Metric | Expected Range | Interpretation |
+|--------|---------------|----------------|
+| Latency | <1ms | Excellent |
+| Latency | 1-5ms | Good |
+| Latency | >10ms | Investigate bottlenecks |
+| Throughput | >5,000 msg/sec | Excellent |
+| Throughput | 1,000-5,000 msg/sec | Good |
+| Throughput | <1,000 msg/sec | Investigate bottlenecks |
+
+Factors affecting performance:
+
+1. **Network conditions**: Local vs. remote testing
+2. **Hardware resources**: CPU, memory, network interface
+3. **Message size**: Larger payloads reduce throughput
+4. **Encryption overhead**: TLS adds processing time
+5. **Backpressure settings**: May limit throughput but improve stability
+
+### Custom Benchmark Configuration
+
+You can create custom benchmarks using the `BenchmarkClient` implementation from the test utilities:
+
+```rust
+use network_protocol::protocol::message::Message;
+use std::time::{Duration, Instant};
+
+// Import our test-specific client implementation
+use test_utils::BenchmarkClient;
+
+// Connect to server with our BenchmarkClient that doesn't use global state
+let mut client = BenchmarkClient::connect(addr).await?;
+
+// Start timing
+let start = Instant::now();
+
+// Send message
+await client.send(Message::Ping).await?;
+
+// Receive response
+let response = client.recv().await?;
+
+// Calculate elapsed time
+let elapsed = start.elapsed();
+println!("Elapsed time: {:?}", elapsed);
+```
+
+To customize benchmark parameters:
+
+1. **Rounds**: Adjust the number of test iterations
+2. **Payload size**: Use custom messages with varying payload sizes
+3. **Delay**: Modify the delay between messages
+4. **Transport**: Test different transport types (TCP, UDS, TLS)
+
+```rust
+// Example custom benchmark with larger payload
+let large_payload = vec![0u8; 1024 * 1024]; // 1MB payload
+let msg = Message::Custom {
+    command: "BENCHMARK".to_string(),
+    data: large_payload,
+};
+
+let start = Instant::now();
+await client.send(msg).await?;
+let response = client.recv().await?;
+let elapsed = start.elapsed();
 println!("Elapsed time (ms): {}", elapsed);
 ```
 

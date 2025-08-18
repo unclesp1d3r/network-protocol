@@ -1,11 +1,35 @@
 use network_protocol::service::daemon;
 use network_protocol::protocol::message::Message;
 use std::time::{Duration, Instant};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 // Import our test-specific client implementation
 mod test_utils;
 use test_utils::BenchmarkClient;
+
+async fn setup_server(addr: &str) -> (JoinHandle<()>, oneshot::Sender<()>) {
+    let addr = addr.to_string();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    
+    // Start the server with proper shutdown handling
+    let server_handle = tokio::spawn(async move {
+        let server_task = tokio::spawn(async move {
+            daemon::start(&addr).await.unwrap();
+        });
+        
+        // Wait for shutdown signal
+        let _ = shutdown_rx.await;
+        // Server will be dropped when task is aborted
+        server_task.abort();
+    });
+    
+    // Give server time to start up
+    sleep(Duration::from_millis(500)).await;
+    
+    (server_handle, shutdown_tx)
+}
 
 #[tokio::test]
 async fn benchmark_roundtrip_latency() {
@@ -13,14 +37,7 @@ async fn benchmark_roundtrip_latency() {
     // so we don't need to set environment variables or clear handshake data
     
     let addr = "127.0.0.1:7799";
-
-    // Start the server in a separate process
-    let _server_handle = tokio::spawn(async move {
-        daemon::start(addr).await.unwrap();
-    });
-
-    // Give server time to start up
-    sleep(Duration::from_millis(500)).await;
+    let (server_handle, shutdown_tx) = setup_server(addr).await;
 
     // Connect to server with our BenchmarkClient that doesn't use global state
     let mut client = match BenchmarkClient::connect(addr).await {
@@ -80,6 +97,16 @@ async fn benchmark_roundtrip_latency() {
     } else {
         println!("No successful ping-pong exchanges completed");
     }
+    
+    // Graceful shutdown sequence
+    println!("[benchmark] Shutting down server...");
+    let _ = shutdown_tx.send(()); // Ignore errors if receiver is already dropped
+    
+    // Give server time to shut down before client is dropped
+    sleep(Duration::from_millis(100)).await;
+    
+    // Wait for server to terminate
+    let _ = tokio::time::timeout(Duration::from_secs(1), server_handle).await;
 }
 
 #[tokio::test]
@@ -87,14 +114,7 @@ async fn benchmark_throughput() {
     // Using benchmark client implementation that doesn't rely on global state
     
     let addr = "127.0.0.1:7798";
-
-    // Start the server in a separate process
-    let _server_handle = tokio::spawn(async move {
-        daemon::start(addr).await.unwrap();
-    });
-
-    // Give server time to start up
-    sleep(Duration::from_millis(500)).await;
+    let (server_handle, shutdown_tx) = setup_server(addr).await;
 
     // Connect to server with our BenchmarkClient that doesn't use global state
     let mut client = match BenchmarkClient::connect(addr).await {
@@ -153,4 +173,14 @@ async fn benchmark_throughput() {
     } else {
         println!("No successful exchanges completed");
     }
+    
+    // Graceful shutdown sequence
+    println!("[benchmark] Shutting down server...");
+    let _ = shutdown_tx.send(());
+    
+    // Give server time to shut down before client is dropped
+    sleep(Duration::from_millis(100)).await;
+    
+    // Wait for server to terminate
+    let _ = tokio::time::timeout(Duration::from_secs(1), server_handle).await;
 }
