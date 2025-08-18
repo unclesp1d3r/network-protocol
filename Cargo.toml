@@ -63,6 +63,9 @@ bytes = "1.5"
 lz4_flex = "0.11.5"
 zstd = "0.13"
 
+# Configuration
+toml = "0.8"
+
 # TLS dependencies
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
 tokio-rustls = "0.24"

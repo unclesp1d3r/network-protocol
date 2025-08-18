@@ -43,7 +43,8 @@
 - Plugin-friendly dispatcher for message routing with zero-copy serialization
 - Graceful shutdown support for all server implementations with configurable timeouts
 - Modular transport: TCP, Unix socket, TLS, cluster sync
-- Structured logging with flexible log level control via environment variables
+- Comprehensive configuration system with TOML files and environment variable overrides
+- Structured logging with flexible log level control via configuration
 
 ### Compatibility
 - Cross-platform support for local transport (Windows, Linux, macOS)
@@ -66,6 +67,7 @@ network-protocol = "0.9.9"
 ```rust
 use network_protocol::utils::logging;
 use network_protocol::service::daemon::{self, ServerConfig};
+use network_protocol::config::NetworkConfig;
 use network_protocol::protocol::dispatcher::Dispatcher;
 use network_protocol::error::Result;
 use std::sync::Arc;
@@ -86,13 +88,20 @@ async fn main() -> Result<()> {
         Ok(msg.clone())
     });
     
-    // Configure server with backpressure settings
+    // Option 1: Load configuration from file
+    // let config = NetworkConfig::from_file("config.toml")?.server;
+    
+    // Option 2: Load configuration from environment variables
+    // let config = NetworkConfig::from_env()?.server;
+    
+    // Option 3: Configure server with custom settings
     let config = ServerConfig {
         address: "127.0.0.1:9000".to_string(),
         backpressure_limit: 100, // Limit pending messages
         connection_timeout: Duration::from_secs(30),
         heartbeat_interval: Duration::from_secs(15),
         shutdown_timeout: Duration::from_secs(10),
+        max_connections: 1000,
     };
     
     // Start server with configuration
@@ -133,6 +142,7 @@ async fn main() -> Result<()> {
 ```rust
 use network_protocol::utils::logging;
 use network_protocol::service::client::{self, ClientConfig};
+use network_protocol::config::NetworkConfig;
 use network_protocol::protocol::message::Message;
 use network_protocol::error::ProtocolError;
 use std::time::Duration;
@@ -144,13 +154,22 @@ async fn main() -> Result<(), ProtocolError> {
     // Initialize structured logging
     logging::init_logging(Some("info"), None)?;
     
-    // Configure client with timeouts and reconnection settings
+    // Option 1: Load configuration from file
+    // let config = NetworkConfig::from_file("config.toml")?.client;
+    
+    // Option 2: Load from environment variables
+    // let config = NetworkConfig::from_env()?.client;
+    
+    // Option 3: Configure client with custom settings
     let config = ClientConfig {
         address: "127.0.0.1:9000".to_string(),
         connection_timeout: Duration::from_secs(5),
         operation_timeout: Duration::from_secs(3),
+        response_timeout: Duration::from_secs(30),
+        heartbeat_interval: Duration::from_secs(15),
         auto_reconnect: true,
         max_reconnect_attempts: 3,
+        reconnect_delay: Duration::from_secs(1),
     };
     
     // Connect with timeout handling
@@ -340,6 +359,7 @@ For detailed benchmarking documentation, see the [API Reference](./docs/API.md#b
 ### Project Structure
 ```
 src/
+├── config.rs    # Configuration structures and loading
 ├── core/        # Codec, packet structure
 ├── protocol/    # Handshake, heartbeat, message types
 ├── transport/   # TCP, Unix socket, Cluster (WIP)

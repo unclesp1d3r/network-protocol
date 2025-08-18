@@ -2299,7 +2299,283 @@ pub fn get_subscriber(log_level: String, sink: impl Sink<String> + Send + Sync +
 
 ## Configuration
 
-The config module defines constants for protocol configuration.
+The configuration system provides a comprehensive way to customize the network protocol's behavior through TOML files, environment variables, or programmatic overrides.
+
+### NetworkConfig
+
+The main configuration structure that contains all configurable settings.
+
+```rust
+pub struct NetworkConfig {
+    pub server: ServerConfig,
+    pub client: ClientConfig,
+    pub transport: TransportConfig,
+    pub logging: LoggingConfig,
+}
+```
+
+#### Methods
+
+##### `from_file`
+
+Loads configuration from a TOML file.
+
+```rust
+pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self>
+```
+
+**Parameters:**
+- `path`: Path to the TOML configuration file
+
+**Returns:**
+- `Result<NetworkConfig>`: Parsed configuration or an error
+
+**Errors:**
+- `ProtocolError::ConfigError`: If the file cannot be read or parsed
+
+**Example:**
+```rust
+use network_protocol::config::NetworkConfig;
+
+let config = NetworkConfig::from_file("config.toml")?;
+println!("Server address: {}", config.server.address);
+```
+
+##### `from_toml`
+
+Loads configuration from a TOML string.
+
+```rust
+pub fn from_toml(content: &str) -> Result<Self>
+```
+
+**Parameters:**
+- `content`: TOML content as a string
+
+**Returns:**
+- `Result<NetworkConfig>`: Parsed configuration or an error
+
+**Errors:**
+- `ProtocolError::ConfigError`: If the content cannot be parsed
+
+##### `from_env`
+
+Loads configuration from environment variables, falling back to defaults.
+
+```rust
+pub fn from_env() -> Result<Self>
+```
+
+**Returns:**
+- `Result<NetworkConfig>`: Configuration with environment variable overrides
+
+**Supported Environment Variables:**
+- `NETWORK_PROTOCOL_SERVER_ADDRESS`: Server listen address
+- `NETWORK_PROTOCOL_BACKPRESSURE_LIMIT`: Maximum backpressure queue size
+- `NETWORK_PROTOCOL_CONNECTION_TIMEOUT_MS`: Connection timeout in milliseconds
+- `NETWORK_PROTOCOL_HEARTBEAT_INTERVAL_MS`: Heartbeat interval in milliseconds
+
+##### `default_with_overrides`
+
+Creates a configuration with default values and applies overrides.
+
+```rust
+pub fn default_with_overrides<F>(mutator: F) -> Self
+where F: FnOnce(&mut Self)
+```
+
+**Parameters:**
+- `mutator`: Closure that modifies the default configuration
+
+**Returns:**
+- `NetworkConfig`: Modified configuration
+
+**Example:**
+```rust
+use network_protocol::config::NetworkConfig;
+use std::time::Duration;
+
+let config = NetworkConfig::default_with_overrides(|cfg| {
+    cfg.server.address = "0.0.0.0:8080".to_string();
+    cfg.server.connection_timeout = Duration::from_secs(60);
+    cfg.transport.compression_enabled = true;
+});
+```
+
+##### `example_config`
+
+Generates an example configuration in TOML format.
+
+```rust
+pub fn example_config() -> String
+```
+
+**Returns:**
+- `String`: Example configuration in TOML format
+
+##### `save_to_file`
+
+Saves the configuration to a TOML file.
+
+```rust
+pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()>
+```
+
+**Parameters:**
+- `path`: Path to save the configuration file
+
+**Returns:**
+- `Result<()>`: Success or an error
+
+**Errors:**
+- `ProtocolError::ConfigError`: If the file cannot be written
+
+### ServerConfig
+
+Server-specific configuration settings.
+
+```rust
+pub struct ServerConfig {
+    pub address: String,
+    pub backpressure_limit: usize,
+    pub connection_timeout: Duration,
+    pub heartbeat_interval: Duration,
+    pub shutdown_timeout: Duration,
+    pub max_connections: usize,
+}
+```
+
+**Fields:**
+- `address`: Server listen address (e.g., "127.0.0.1:9000")
+- `backpressure_limit`: Maximum number of messages in the queue (default: 32)
+- `connection_timeout`: Timeout for client connections
+- `heartbeat_interval`: Interval for sending heartbeat messages
+- `shutdown_timeout`: Timeout for graceful server shutdown
+- `max_connections`: Maximum number of concurrent connections (default: 1000)
+
+### ClientConfig
+
+Client-specific configuration settings.
+
+```rust
+pub struct ClientConfig {
+    pub address: String,
+    pub connection_timeout: Duration,
+    pub operation_timeout: Duration,
+    pub response_timeout: Duration,
+    pub heartbeat_interval: Duration,
+    pub auto_reconnect: bool,
+    pub max_reconnect_attempts: u32,
+    pub reconnect_delay: Duration,
+}
+```
+
+**Fields:**
+- `address`: Target server address (e.g., "127.0.0.1:9000")
+- `connection_timeout`: Timeout for connection attempts
+- `operation_timeout`: Timeout for individual operations (default: 3s)
+- `response_timeout`: Timeout for waiting for response messages (default: 30s)
+- `heartbeat_interval`: Interval for sending heartbeat messages
+- `auto_reconnect`: Whether to automatically reconnect (default: true)
+- `max_reconnect_attempts`: Maximum reconnect attempts (default: 3)
+- `reconnect_delay`: Delay between reconnect attempts (default: 1s)
+
+### TransportConfig
+
+Transport-specific configuration settings.
+
+```rust
+pub struct TransportConfig {
+    pub compression_enabled: bool,
+    pub encryption_enabled: bool,
+    pub max_payload_size: usize,
+    pub compression_level: i32,
+}
+```
+
+**Fields:**
+- `compression_enabled`: Whether to enable compression (default: false)
+- `encryption_enabled`: Whether to enable encryption (default: true)
+- `max_payload_size`: Maximum allowed payload size (default: 16MB)
+- `compression_level`: Compression level when enabled (default: 6)
+
+### LoggingConfig
+
+Logging-specific configuration settings.
+
+```rust
+pub struct LoggingConfig {
+    pub app_name: String,
+    pub log_level: tracing::Level,
+    pub log_to_console: bool,
+    pub log_to_file: bool,
+    pub log_file_path: Option<String>,
+    pub json_format: bool,
+}
+```
+
+**Fields:**
+- `app_name`: Application name for logs (default: "network-protocol")
+- `log_level`: Log level (default: INFO)
+- `log_to_console`: Whether to log to console (default: true)
+- `log_to_file`: Whether to log to file (default: false)
+- `log_file_path`: Path to log file (if log_to_file is true)
+- `json_format`: Whether to use JSON formatting for logs (default: false)
+
+### Helper Modules
+
+#### Duration Serialization
+
+Helpers for serializing and deserializing `std::time::Duration` in milliseconds.
+
+```rust
+mod duration_serde {
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+}
+```
+
+#### Log Level Serialization
+
+Helpers for serializing and deserializing `tracing::Level` as strings.
+
+```rust
+mod log_level_serde {
+    pub fn serialize<S>(level: &Level, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Level, D::Error>
+}
+```
+
+### Usage Example
+
+```rust
+use network_protocol::config::NetworkConfig;
+use network_protocol::service::daemon::Daemon;
+
+#[tokio::main]
+async fn main() -> network_protocol::error::Result<()> {
+    // Load configuration from file
+    let config = NetworkConfig::from_file("config.toml")?;
+    
+    // Or from environment variables
+    // let config = NetworkConfig::from_env()?;
+    
+    // Start server with configuration
+    let daemon = Daemon::start_with_config(config.server.clone()).await?;
+    
+    // Wait for shutdown signal
+    tokio::signal::ctrl_c().await?;
+    
+    // Shut down gracefully
+    daemon.shutdown().await?;
+    
+    Ok(())
+}
+```
+
+### Example Configuration File
+
+A complete example configuration file (`example_config.toml`) is available in the docs directory, demonstrating all available settings with their default values and comments.
 
 #### Constants
 

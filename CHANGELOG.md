@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Comprehensive configuration management system with extensive customization options
+- Support for TOML configuration files with serde serialization/deserialization
+- Environment variable overrides for all configuration settings
+- Configuration structures for server, client, transport, and logging settings
+- Default configuration values aligned with existing protocol constants
+- Example configuration file in docs/example_config.toml
+- Helper modules for serializing Duration and tracing::Level types
+- API for loading configuration from files, environment variables, and TOML strings
+- ConfigError variant added to ProtocolError enum for proper error handling
+- Custom configuration serialization utilities for duration and log level
+
+### Changed
+- Updated service APIs to accept custom configuration parameters
+- Enhanced daemon server to use configuration for timeouts, backpressure, and connection limits
+- Modified client connection code to support configuration-driven behavior
+- Refactored protocol constants into structured configuration objects
+- Improved error handling for configuration-related operations
+
 
 ## [0.9.9] - 2025-08-17
 
