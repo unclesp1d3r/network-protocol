@@ -14,19 +14,37 @@
 </div>
 <br>
 <p>
-    A secure, high-performance network protocol core for Rust applications and services with TLS support and graceful shutdown capabilities. Built for speed, encryption, and pluggable transport modes (local, remote, TLS, cluster).
+    A secure, high-performance network protocol core for Rust applications and services with advanced features like backpressure control, structured logging, timeout handling, and TLS support. Designed for reliability in high-load environments with protection against slow clients and network failures. Supports multiple transport modes (local, remote, TLS, cluster) with consistent APIs and graceful shutdown capabilities.
 </p>
 <br>
 
 ## Features
+
+### Security
 - Secure handshake + post-handshake encryption using Elliptic Curve Diffie-Hellman (ECDH) key exchange
 - TLS transport with client/server implementations and mutual authentication (mTLS)
-- Self-signed certificate generation capability for development environments
 - Certificate pinning for enhanced security in TLS connections
+- Self-signed certificate generation capability for development environments
+- Protection against replay attacks using timestamps and nonce verification
+
+### Performance & Reliability
+- Advanced backpressure mechanism to prevent server overload from slow clients
+- Bounded channels with dynamic read pausing to maintain stable memory usage
+- Configurable connection timeouts for all network operations with proper error handling
+- Heartbeat mechanism with keep-alive ping/pong messages for connection health monitoring
+- Automatic detection and cleanup of dead connections
+- Client-side timeout handling with reconnection capabilities
+
+### Core Architecture
 - Custom binary packet format with optional compression (LZ4, Zstd)
 - Plugin-friendly dispatcher for message routing with zero-copy serialization
 - Graceful shutdown support for all server implementations with configurable timeouts
 - Modular transport: TCP, Unix socket, TLS, cluster sync
+- Structured logging with flexible log level control via environment variables
+
+### Compatibility
+- Cross-platform support for local transport (Windows, Linux, macOS)
+- Windows-compatible alternative for Unix Domain Sockets
 - Ready for microservices, databases, daemons, and system protocols
 <br>
 
@@ -34,34 +52,57 @@
 Add the library to your `Cargo.toml`:
 ```toml
 [dependencies]
-network-protocol = "0.9.3"
+network-protocol = "0.9.6"
 ```
 
 <br>
 
 ## Example Usage
 
-### TCP Server with Graceful Shutdown
+### TCP Server with Backpressure and Structured Logging
 ```rust
+use network_protocol::utils::logging;
+use network_protocol::service::daemon::{self, ServerConfig};
+use network_protocol::protocol::dispatcher::Dispatcher;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::{info, warn};
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize structured logging
+    logging::init_logging(Some("info"), None).expect("Failed to initialize logging");
+    
     // Create a dispatcher
     let dispatcher = Arc::new(Dispatcher::default());
     
     // Register message handlers
-    dispatcher.register("ECHO", |msg| Ok(msg.clone()));
+    dispatcher.register("ECHO", |msg| {
+        info!(message_type = "ECHO", "Processing echo request");
+        Ok(msg.clone())
+    });
     
-    // Start server with graceful shutdown support
-    let server = network_protocol::service::daemon::new("127.0.0.1:9000", dispatcher);
+    // Configure server with backpressure settings
+    let config = ServerConfig {
+        address: "127.0.0.1:9000".to_string(),
+        backpressure_limit: 100, // Limit pending messages
+        connection_timeout: Duration::from_secs(30),
+        heartbeat_interval: Duration::from_secs(15),
+        shutdown_timeout: Duration::from_secs(10),
+    };
+    
+    // Start server with configuration
+    let server = daemon::new_with_config(config, dispatcher);
     
     // Handle Ctrl+C for graceful shutdown
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
-        println!("Initiating graceful shutdown...");
+        info!("Initiating graceful shutdown...");
         server.shutdown(Some(Duration::from_secs(10))).await;
     });
     
     // Run server until stopped
+    info!("Server starting on 127.0.0.1:9000");
     server.run().await?;
     Ok(())
 }
@@ -85,14 +126,77 @@ async fn main() -> Result<()> {
 }
 ```
 
-### Standard Client
+### Client with Timeout Handling
 ```rust
+use network_protocol::utils::logging;
+use network_protocol::service::client::{self, ClientConfig};
+use network_protocol::protocol::message::Message;
+use network_protocol::error::ProtocolError;
+use std::time::Duration;
+use tracing::{info, error};
+use tokio::time::timeout;
+
 #[tokio::main]
-async fn main() -> Result<()> {
-    let mut conn = network_protocol::service::client::connect("127.0.0.1:9000").await?;
-    conn.secure_send(Message::Echo("hello".into())).await?;
-    let reply = conn.secure_recv().await?;
-    println!("Received: {:?}", reply);
+async fn main() -> Result<(), ProtocolError> {
+    // Initialize structured logging
+    logging::init_logging(Some("info"), None)?;
+    
+    // Configure client with timeouts and reconnection settings
+    let config = ClientConfig {
+        address: "127.0.0.1:9000".to_string(),
+        connection_timeout: Duration::from_secs(5),
+        operation_timeout: Duration::from_secs(3),
+        auto_reconnect: true,
+        max_reconnect_attempts: 3,
+    };
+    
+    // Connect with timeout handling
+    info!("Connecting to server...");
+    let mut conn = match timeout(Duration::from_secs(5), client::connect_with_config(config)).await {
+        Ok(Ok(conn)) => conn,
+        Ok(Err(e)) => {
+            error!(error = ?e, "Failed to connect to server");
+            return Err(e);
+        }
+        Err(_) => {
+            error!("Connection timeout");
+            return Err(ProtocolError::Timeout);
+        }
+    };
+    
+    info!("Connected successfully");
+    
+    // Send message with timeout
+    match timeout(Duration::from_secs(3), conn.secure_send(Message::Echo("hello".into()))).await {
+        Ok(Ok(_)) => info!("Message sent successfully"),
+        Ok(Err(e)) => {
+            error!(error = ?e, "Failed to send message");
+            return Err(e);
+        }
+        Err(_) => {
+            error!("Send timeout");
+            return Err(ProtocolError::Timeout);
+        }
+    }
+    
+    // Receive reply with timeout
+    let reply = match timeout(Duration::from_secs(3), conn.secure_recv()).await {
+        Ok(Ok(msg)) => msg,
+        Ok(Err(e)) => {
+            error!(error = ?e, "Failed to receive reply");
+            return Err(e);
+        }
+        Err(_) => {
+            error!("Receive timeout");
+            return Err(ProtocolError::Timeout);
+        }
+    };
+    
+    info!(reply = ?reply, "Received reply");
+    
+    // Close connection gracefully
+    conn.close().await?
+    
     Ok(())
 }
 ```

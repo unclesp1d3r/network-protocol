@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.9.6] - 2025-08-17
+
 ### Added
 - Integrated structured logging with `tracing` crate throughout the codebase
 - Added `#[tracing::instrument]` attributes to key async functions for enhanced contextual logging

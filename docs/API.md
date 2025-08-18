@@ -37,19 +37,21 @@
   - [Client](#client)
   - [Daemon](#daemon)
   - [Secure Connection](#secure-connection)
+  - [Configuration](#service-configuration)
 - [Utilities](#utilities)
   - [Cryptography](#cryptography)
   - [Compression](#compression)
   - [Time](#time)
 - [Error Handling](#error-handling)
 - [Configuration](#configuration)
+- [Logging](#logging)
 
 ## Installation
 
 ### Install Manually
 ```toml
 [dependencies]
-network-protocol = "0.9.3"
+network-protocol = "0.9.6"
 ```
 
 ### Install Using Cargo
@@ -846,7 +848,7 @@ match response {
 
 ### Heartbeat
 
-The heartbeat module provides functions for implementing heartbeat mechanisms.
+The heartbeat module provides functions for implementing heartbeat mechanisms to detect and clean up dead connections.
 
 #### Functions
 
@@ -879,18 +881,90 @@ pub fn is_pong(msg: &Message) -> bool
 ```rust
 use network_protocol::protocol::heartbeat;
 use network_protocol::protocol::message::Message;
+use tokio::time::timeout;
+use std::time::Duration;
+use tracing::{info, warn};
 
-// Send a ping
-let ping_msg = heartbeat::build_ping();
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Send a ping with timeout
+    let ping_msg = heartbeat::build_ping();
+    let mut conn = // ...get connection
+    
+    // Send ping with timeout
+    match timeout(Duration::from_secs(5), conn.send(ping_msg)).await {
+        Ok(Ok(_)) => info!("Ping sent successfully"),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            warn!("Ping send timeout - connection may be dead");
+            return Err(ProtocolError::Timeout);
+        }
+    }
+    
+    // Receive pong with timeout
+    let response = match timeout(Duration::from_secs(5), conn.receive()).await {
+        Ok(Ok(msg)) => msg,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            warn!("Pong receive timeout - connection may be dead");
+            return Err(ProtocolError::Timeout);
+        }
+    };
+    
+    // Check if the response is a valid pong
+    if heartbeat::is_pong(&response) {
+        info!("Received valid pong response - connection is alive");
+        Ok(())
+    } else {
+        warn!("Response is not a pong - unexpected message type");
+        Err(ProtocolError::UnexpectedMessageType)
+    }
+}
+```
 
-// Receive a response (in a real scenario, this would come from the network)
-let response_msg = Message::Pong;
+##### `start_heartbeat_task`
 
-// Check if the response is a valid pong
-if heartbeat::is_pong(&response_msg) {
-    println!("Received valid pong response");
-} else {
-    println!("Response is not a pong");
+Starts a background task that sends periodic heartbeats on a connection.
+
+```rust
+pub async fn start_heartbeat_task(
+    conn: Arc<Mutex<Connection>>,
+    interval: Duration,
+    on_failure: impl Fn() + Send + 'static
+) -> JoinHandle<()>
+```
+
+**Parameters:**
+- `conn`: A thread-safe reference to a connection
+- `interval`: How frequently to send heartbeats
+- `on_failure`: Callback function to execute if heartbeat fails
+
+**Returns:**
+- `JoinHandle<()>`: A handle to the spawned heartbeat task
+
+**Example:**
+```rust
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use network_protocol::protocol::heartbeat;
+use tracing::warn;
+
+#[tokio::main]
+async fn main() {
+    let conn = Arc::new(Mutex::new(/* connection */));
+    
+    // Start heartbeat task that will run every 15 seconds
+    let heartbeat_handle = heartbeat::start_heartbeat_task(
+        Arc::clone(&conn),
+        Duration::from_secs(15),
+        || {
+            warn!("Heartbeat failed, connection may be dead");
+            // Trigger connection cleanup or reconnection logic
+        }
+    ).await;
+    
+    // Later, when shutting down:
+    heartbeat_handle.abort();
 }
 ```
 
@@ -898,7 +972,7 @@ if heartbeat::is_pong(&response_msg) {
 
 ### Client
 
-The client module provides functionality for establishing secure connections to servers.
+The client module provides functionality for establishing secure connections to servers with support for timeouts, auto-reconnection, and graceful shutdown.
 
 #### Struct Definition
 
@@ -911,16 +985,18 @@ pub struct Client {
 
 #### Methods
 
-##### `connect_tcp`
+##### `connect_tcp` and `connect_with_config`
 
 Connects to a remote TCP server with secure communication.
 
 ```rust
 pub async fn connect_tcp(addr: &str) -> Result<Self>
+pub async fn connect_with_config(config: ClientConfig) -> Result<Self>
 ```
 
 **Parameters:**
 - `addr`: The address to connect to (e.g., "127.0.0.1:8080")
+- `config`: Client configuration including timeouts and reconnection settings
 
 **Returns:**
 - `Result<Client>`: A result containing either a connected client or an error
@@ -975,47 +1051,98 @@ pub async fn close(&mut self) -> Result<()>
 **Returns:**
 - `Result<()>`: A result indicating success or an error
 
-**Example:**
+**Example with Timeout Handling:**
 ```rust
-use network_protocol::service::client::Client;
+use network_protocol::utils::logging;
+use network_protocol::service::client::{self, ClientConfig};
 use network_protocol::protocol::message::Message;
+use network_protocol::error::ProtocolError;
+use std::time::Duration;
+use tracing::{info, error};
+use tokio::time::timeout;
 
 #[tokio::main]
-async fn main() -> network_protocol::error::Result<()> {
-    // Connect to a TCP server
-    let mut client = Client::connect_tcp("127.0.0.1:8080").await?;
-    println!("Connected to server");
+async fn main() -> Result<(), ProtocolError> {
+    // Initialize structured logging
+    logging::init_logging(Some("info"), None)?;
     
-    // Send an echo message
-    let message = Message::Echo("Hello, server!".to_string());
-    client.send(message).await?;
+    // Configure client with timeouts and reconnection settings
+    let config = ClientConfig {
+        address: "127.0.0.1:9000".to_string(),
+        connection_timeout: Duration::from_secs(5),
+        operation_timeout: Duration::from_secs(3),
+        auto_reconnect: true,
+        max_reconnect_attempts: 3,
+    };
     
-    // Receive the response
-    let response = client.receive().await?;
-    match response {
-        Message::Echo(text) => println!("Received echo response: {}", text),
-        _ => println!("Unexpected response type")
+    // Connect with timeout handling
+    info!("Connecting to server...");
+    let mut conn = match timeout(Duration::from_secs(5), client::connect_with_config(config)).await {
+        Ok(Ok(conn)) => conn,
+        Ok(Err(e)) => {
+            error!(error = ?e, "Failed to connect to server");
+            return Err(e);
+        }
+        Err(_) => {
+            error!("Connection timeout");
+            return Err(ProtocolError::Timeout);
+        }
+    };
+    
+    info!("Connected successfully");
+    
+    // Send message with timeout
+    let msg = Message::Echo("hello".into());
+    match timeout(Duration::from_secs(3), conn.send(msg)).await {
+        Ok(Ok(_)) => info!("Message sent successfully"),
+        Ok(Err(e)) => {
+            error!(error = ?e, "Failed to send message");
+            return Err(e);
+        }
+        Err(_) => {
+            error!("Send timeout");
+            return Err(ProtocolError::Timeout);
+        }
     }
     
-    // Close the connection
-    client.close().await?
+    // Close connection gracefully
+    conn.close().await
 }
 ```
 
 ### Daemon
 
-The daemon module provides functionality for running a server that accepts client connections.
+The daemon module provides functionality for running a server that accepts client connections with support for backpressure control, timeouts, heartbeats, and graceful shutdown.
 
 #### Functions
 
-##### `new` and `run`
+##### `new` and `new_with_config`
 
-Creates and runs a new server daemon with graceful shutdown support.
+Creates a new server daemon with graceful shutdown support.
 
 ```rust
 pub fn new(addr: &str, dispatcher: Arc<dyn MessageDispatcher>) -> ServerHandle
+pub fn new_with_config(config: ServerConfig, dispatcher: Arc<dyn MessageDispatcher>) -> ServerHandle
+```
+
+**Parameters:**
+- `addr`: The address to bind the server to (e.g., "127.0.0.1:8080")
+- `config`: Server configuration including backpressure and timeout settings
+- `dispatcher`: The message dispatcher to use for handling messages
+
+**Returns:**
+- `ServerHandle`: A handle to control the server, including shutdown
+
+##### `run`
+
+Runs the server until it is shut down.
+
+```rust
 pub async fn run(&self) -> Result<()>
 ```
+
+**Returns:**
+- `Result<()>`: A result indicating success or an error when calling `run()`
 
 **Parameters:**
 - `addr`: The address to bind the server to (e.g., "127.0.0.1:8080")
@@ -1058,6 +1185,48 @@ pub async fn shutdown(&self, timeout: Option<Duration>)
 
 **Parameters:**
 - `timeout`: Optional maximum duration to wait for connections to close before forcing shutdown
+
+**Example with Backpressure and Timeouts:**
+```rust
+use network_protocol::service::daemon::{self, ServerConfig};
+use network_protocol::protocol::dispatcher::Dispatcher;
+use network_protocol::utils::logging;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::info;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize structured logging
+    logging::init_logging(Some("info"), None).expect("Failed to initialize logging");
+    
+    let dispatcher = Arc::new(Dispatcher::default());
+    
+    // Configure server with backpressure settings
+    let config = ServerConfig {
+        address: "127.0.0.1:9000".to_string(),
+        backpressure_limit: 100, // Limit pending messages
+        connection_timeout: Duration::from_secs(30),
+        heartbeat_interval: Duration::from_secs(15),
+        shutdown_timeout: Duration::from_secs(10),
+    };
+    
+    // Start server with configuration
+    let server = daemon::new_with_config(config, dispatcher);
+    
+    // Handle Ctrl+C for graceful shutdown
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
+        info!("Initiating graceful shutdown...");
+        server_clone.shutdown(Some(Duration::from_secs(10))).await;
+    });
+    
+    // Run server until stopped
+    info!("Server starting on 127.0.0.1:9000");
+    server.run().await
+}
+```
 
 **Example:**
 ```rust
@@ -1531,6 +1700,60 @@ pub enum ProtocolError {
 ```rust
 pub type Result<T> = std::result::Result<T, ProtocolError>;
 ```
+
+## Logging
+
+The logging module provides structured logging capabilities using the `tracing` crate.
+
+### Functions
+
+##### `init_logging`
+
+Initializes structured logging with configurable log level.
+
+```rust
+pub fn init_logging(log_level: Option<&str>, log_file: Option<&str>) -> Result<()>
+```
+
+**Parameters:**
+- `log_level`: Optional string representation of the log level ("trace", "debug", "info", "warn", "error")
+- `log_file`: Optional file path to write logs to
+
+**Returns:**
+- `Result<()>`: Success or error if logging initialization fails
+
+**Example:**
+```rust
+use network_protocol::utils::logging;
+use tracing::{info, debug, error};
+
+fn main() -> Result<()> {
+    // Initialize with INFO level and no log file (stdout only)
+    logging::init_logging(Some("info"), None)?;
+    
+    // Log various events with different levels
+    debug!("This is a debug message with a value: {}", 42);
+    info!(user = "admin", action = "login", "User logged in successfully");
+    error!(error_code = 500, message = "Database connection failed");
+    
+    Ok(())
+}
+```
+
+##### `get_subscriber`
+
+Creates a tracing subscriber with the specified configuration.
+
+```rust
+pub fn get_subscriber(log_level: String, sink: impl Sink<String> + Send + Sync + 'static) -> impl Subscriber + Send + Sync
+```
+
+**Parameters:**
+- `log_level`: String representation of the log level
+- `sink`: Where to send the log output
+
+**Returns:**
+- A tracing subscriber configured with the specified settings
 
 ## Configuration
 

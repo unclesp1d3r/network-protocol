@@ -1,6 +1,6 @@
 [package]
 name = "network-protocol"
-version = "0.9.4"
+version = "0.9.6"
 
 edition = "2021"
 readme = "README.md"
@@ -10,19 +10,20 @@ authors = [
     "James Gober <code@jamesgober.dev>"
 ]
 
-description = "Secure, high-performance protocol core with TLS support and graceful shutdown capabilities for Rust applications and services."
+description = "Secure, high-performance protocol core with backpressure control, structured logging, timeout handling, and TLS support for robust Rust networked applications and services."
 keywords = [
     "network", 
     "protocol", 
     "secure", 
-    "transport", 
-    "tls"
+    "backpressure", 
+    "timeout"
 ]
 categories = [
     "network-programming", 
     "asynchronous",
     "cryptography",
-    "authentication"
+    "authentication",
+    "concurrency"
 ]
 documentation = "https://docs.rs/network-protocol"
 repository = "https://github.com/jamesgober/network-protocol"
