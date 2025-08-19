@@ -11,8 +11,7 @@
 </div>
 
 [Home](../README.md) | 
-[Docs](./README.md) | 
-[API Reference](./API.md)
+[Documentation](./README.md)
 
 
 

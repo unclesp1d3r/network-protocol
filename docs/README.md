@@ -11,9 +11,9 @@
 </div>
 
 [Home](../README.md) | 
-[Benchmarks](./BENCHMARKS.md) | 
-[API Reference](./API.md)
-
+[API Reference](./API.md) | 
+[Performance](./PERFORMANCE.md) | 
+[Principles](./PRINCIPLES.md)
 
 
 

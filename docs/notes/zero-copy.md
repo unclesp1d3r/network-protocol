@@ -10,9 +10,8 @@
     </h1>
 </div>
 
-[Home](../../README.md) | 
-[Benchmarks](../BENCHMARKS.md) | 
-[API Reference](../API.md)
+[Home](../README.md) | 
+[Documentation](./README.md)
 
 
 ## Zero-Copy Deserialization Analysis

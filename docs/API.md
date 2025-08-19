@@ -12,10 +12,9 @@
 
 
 [Home](../README.md) | 
-[Documentation](./README.md) | 
-[Benchmarks](./BENCHMARKS.md)
-<br>
+[Documentation](./README.md)
 
+<br>
 
 ## Table of Contents
 
