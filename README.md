@@ -376,9 +376,10 @@ src/
 ```
 
 
-[Docs](./docs/README.md) | 
-[Benchmarks](./docs/BENCHMARKS.md) | 
-[API Reference](./docs/API.md)
+[Documentation](./docs/README.md) | 
+[API Reference](./docs/API.md) | 
+[Performance](./docs/PERFORMANCE.md) | 
+[Principles](./docs/PRINCIPLES.md)
 
 
 <br>
